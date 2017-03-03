@@ -90,7 +90,9 @@ data LIO l a where
 
   -- * Exception handling
   Catch :: LIO l a -> (e -> LIO l a) -> LIO l a
-  
+ 
+  -- * Errors
+  WithContext :: String -> LIO l a -> LIO l a
   deriving (Typeable)
 
 instance Monad (LIO l) where

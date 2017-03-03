@@ -51,9 +51,9 @@ instance Exception AnyLabelError
 -- incur a small runtime cost (though it is well under 100 ns on
 -- machines we benchmarked).
 withContext :: String -> LIO l a -> LIO l a
-withContext ctx (LIOTCB act) =
-  LIOTCB $ \st -> act st `IO.catch` \e ->
-  IO.throwIO $ annotate ctx (e :: AnyLabelError)
+withContext = WithContext
+  -- LIOTCB $ \st -> act st `IO.catch` \e ->
+  -- IO.throwIO $ annotate ctx (e :: AnyLabelError)
 
 -- | Definition of 'toException' for children of 'AnyLabelError' in
 -- the exception hierarchy.
