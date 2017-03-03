@@ -1,6 +1,7 @@
 {-# LANGUAGE Unsafe #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE GADTs #-}
 
 {- | 
 
@@ -56,19 +57,41 @@ data LIOState l = LIOState { lioLabel     :: !l -- ^ Current label.
 -- arbitrary 'IO' actions from the 'LIO' monad.  However, trusted
 -- runtime functions can use 'ioTCB' to perform 'IO' actions (which
 -- they should only do after appropriately checking labels).
-newtype LIO l a = LIOTCB (IORef (LIOState l) -> IO a) deriving (Typeable)
+data LIO l a where 
+  --LIOTCB (IORef (LIOState l) -> IO a) 
+  GetLabel          :: LIO l l
+  SetLabel          :: l -> LIO l ()
+  SetLabelP         :: l -> LIO l ()
+  GetClearance      :: LIO l l
+  SetClearance      :: l -> LIO l ()
+  SetClearanceP     :: Priv p -> l -> LIO l ()
+  ScopeClearance    :: LIO l a -> LIO l a
+  WithClearance     :: l -> LIO l a -> LIO l a
+  WithClearanceP    :: Priv p -> l -> LIO l a -> LIO l a
+  GuardAlloc        :: l -> LIO l ()
+  GuardAllocP       :: Priv p -> l -> LIO l ()
+  Taint             :: l -> LIO l ()
+  TaintP            :: Priv p -> l -> LIO l ()
+  GuardWrite        :: l -> LIO l ()
+  GuardWriteP       :: Priv p -> l -> LIO l ()
+  Return            :: a -> LIO l a
+  Bind              :: LIO l a -> (a -> LIO l b) -> LIO l b
+  Fail              :: String -> LIO l a
+  GetLIOStateTCB    :: LIO l (LIOState l)
+  PutLIOStateTCB    :: LIOState l -> LIO l ()
+  ModifyLIOStateTCB :: (LIOState l -> LIOState l) -> LIO l ()
+  IOTCB             :: IO a -> LIO l a
+  deriving (Typeable)
 
 instance Monad (LIO l) where
   {-# INLINE return #-}
-  return = LIOTCB . const . return
+  return = Return
   {-# INLINE (>>=) #-}
-  (LIOTCB ma) >>= k = LIOTCB $ \s -> do
-    a <- ma s
-    case k a of LIOTCB mb -> mb s
-  fail = LIOTCB . const . fail
+  (>>=) = Bind
+  fail = Fail
 
 instance Functor (LIO l) where
-  fmap f (LIOTCB a) = LIOTCB $ \s -> a s >>= return . f
+  fmap f l =  l >>= (return . f)
 -- fmap typically isn't inlined, so we don't inline our definition,
 -- but we do define it in terms of >>= and return (which are inlined)
 
@@ -87,19 +110,17 @@ instance Applicative (LIO l) where
 -- internal state to trusted code.
 getLIOStateTCB :: LIO l (LIOState l)
 {-# INLINE getLIOStateTCB #-}
-getLIOStateTCB = LIOTCB readIORef
+getLIOStateTCB = GetLIOStateTCB 
 
 -- | Set internal state.
 putLIOStateTCB :: LIOState l -> LIO l ()
 {-# INLINE putLIOStateTCB #-}
-putLIOStateTCB s = LIOTCB $ \sp -> writeIORef sp $! s
+putLIOStateTCB = PutLIOStateTCB 
 
 -- | Update the internal state given some function.
 modifyLIOStateTCB :: (LIOState l -> LIOState l) -> LIO l ()
 {-# INLINE modifyLIOStateTCB #-}
-modifyLIOStateTCB f = do
-  s <- getLIOStateTCB
-  putLIOStateTCB (f s)
+modifyLIOStateTCB = ModifyLIOStateTCB
 
 --
 -- Executing IO actions
@@ -110,7 +131,7 @@ modifyLIOStateTCB f = do
 -- the 'IO' computation will not violate IFC policy.
 ioTCB :: IO a -> LIO l a
 {-# INLINE ioTCB #-}
-ioTCB = LIOTCB . const
+ioTCB = IOTCB 
 
 --
 -- Exception handling
