@@ -93,6 +93,13 @@ data LIO l a where
  
   -- * Errors
   WithContext :: String -> LIO l a -> LIO l a
+
+  -- * Concurrency operators
+  ForkLIO :: LIO l () -> LIO l ()
+  LForkP :: Priv p -> l -> LIO l a -> LIO l (LabeledResult l a)
+  LWaitP :: Priv p -> LabeledResult l a -> LIO l a
+  TryLWaitP :: Priv p -> LabeledResult l a -> LIO l (Maybe a)
+  TimedLWaitP :: Priv p -> LabeledResult l a -> Int -> LIO l a
   deriving (Typeable)
 
 instance Monad (LIO l) where
