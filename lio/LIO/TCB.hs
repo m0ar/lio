@@ -61,7 +61,7 @@ data LIO l a where
   --LIOTCB (IORef (LIOState l) -> IO a) 
   GetLabel          :: LIO l l
   SetLabel          :: l -> LIO l ()
-  SetLabelP         :: l -> LIO l ()
+  SetLabelP         :: Priv p -> l -> LIO l ()
   GetClearance      :: LIO l l
   SetClearance      :: l -> LIO l ()
   SetClearanceP     :: Priv p -> l -> LIO l ()
