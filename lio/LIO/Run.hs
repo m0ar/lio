@@ -1,4 +1,5 @@
 {-# LANGUAGE Trustworthy #-}
+{-# LANGUAGE GADTs #-}
 
 -- | This module contains functions to launch 'LIO' computations from
 -- within the 'IO' monad.  These functions are not useful from within
@@ -25,11 +26,15 @@ import LIO.TCB
 --
 -- See also 'evalLIO'.
 runLIO :: LIO l a -> LIOState l -> IO (a, LIOState l)
-runLIO lio s0 = undefined--do
---  sp <- newIORef s0
---  a <- m sp `IO.catch` \e -> return $ throw $ makeCatchable e
---  s1 <- readIORef sp
---  return (a, s1)
+runLIO lio s0 = do
+  sp <- newIORef s0
+  a  <- runLIO' lio sp `IO.catch` \e -> return $ throw $ makeCatchable e
+  s1 <- readIORef sp
+  return (a, s1)
+  
+runLIO' :: LIO l a -> IORef (LIOState l) -> IO a  
+runLIO' lio ioRef =  case lio of
+    GetLabel -> lioLabel <$> readIORef ioRef
 
 -- | A variant of 'runLIO' that returns results in 'Right' and
 -- exceptions in 'Left', much like the standard library 'try'
