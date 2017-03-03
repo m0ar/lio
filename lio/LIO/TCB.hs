@@ -74,13 +74,23 @@ data LIO l a where
   TaintP            :: Priv p -> l -> LIO l ()
   GuardWrite        :: l -> LIO l ()
   GuardWriteP       :: Priv p -> l -> LIO l ()
+  
+  -- * Monadic operations
   Return            :: a -> LIO l a
   Bind              :: LIO l a -> (a -> LIO l b) -> LIO l b
   Fail              :: String -> LIO l a
+  
+  -- * State modifiers
   GetLIOStateTCB    :: LIO l (LIOState l)
   PutLIOStateTCB    :: LIOState l -> LIO l ()
   ModifyLIOStateTCB :: (LIOState l -> LIOState l) -> LIO l ()
+  
+  -- * IO lifting
   IOTCB             :: IO a -> LIO l a
+
+  -- * Exception handling
+  Catch :: LIO l a -> (e -> LIO l a) -> LIO l a
+  
   deriving (Typeable)
 
 instance Monad (LIO l) where
