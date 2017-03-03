@@ -1,6 +1,8 @@
 {-# LANGUAGE Unsafe #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE GADTs #-}
 
 {- | 
 
@@ -32,6 +34,8 @@ module LIO.TCB (
   , ShowTCB(..)
   -- * 'LabeledResult's
   , LabeledResult(..), LResStatus(..)
+  -- * MLabelPolicy
+  , MLabelPolicy(..)
   ) where
 
 import safe Control.Applicative ()
@@ -41,6 +45,9 @@ import safe Control.Monad
 import safe Data.Monoid ()
 import safe Data.IORef
 import safe Data.Typeable
+import safe LIO.Label
+import LIO.Priv (Priv(..))
+import LIO.TCB.MLabel (MLabel(..))
 
 --
 -- LIO Monad
@@ -56,19 +63,71 @@ data LIOState l = LIOState { lioLabel     :: !l -- ^ Current label.
 -- arbitrary 'IO' actions from the 'LIO' monad.  However, trusted
 -- runtime functions can use 'ioTCB' to perform 'IO' actions (which
 -- they should only do after appropriately checking labels).
-newtype LIO l a = LIOTCB (IORef (LIOState l) -> IO a) deriving (Typeable)
+data LIO l a where 
+  -- * Label operations
+  GetLabel                   :: LIO l l
+  SetLabel                   :: l -> LIO l ()
+  SetLabelP                  :: PrivDesc l p => Priv p -> l -> LIO l ()
+  
+  -- * Clearance operations
+  GetClearance               :: LIO l l
+  SetClearance               :: l -> LIO l ()
+  SetClearanceP              :: PrivDesc l p => Priv p -> l -> LIO l ()
+  ScopeClearance             :: LIO l a -> LIO l a
+  WithClearance              :: l -> LIO l a -> LIO l a
+  WithClearanceP             :: PrivDesc l p => Priv p -> l -> LIO l a -> LIO l a
+  
+  -- * Guard operations
+  GuardAlloc                 :: l -> LIO l ()
+  GuardAllocP                :: PrivDesc l p => Priv p -> l -> LIO l ()
+  GuardWrite                 :: l -> LIO l ()
+  GuardWriteP                :: PrivDesc l p => Priv p -> l -> LIO l ()
+  
+  -- * Taint operations
+  Taint                      :: l -> LIO l ()
+  TaintP                     :: PrivDesc l p => Priv p -> l -> LIO l ()
+  
+  -- * Monadic operations
+  Return                     :: a -> LIO l a
+  Bind                       :: LIO l a -> (a -> LIO l b) -> LIO l b
+  Fail                       :: String -> LIO l a
+
+  -- * State modifiers
+  GetLIOStateTCB             :: LIO l (LIOState l)
+  PutLIOStateTCB             :: LIOState l -> LIO l ()
+  ModifyLIOStateTCB          :: (LIOState l -> LIOState l) -> LIO l ()
+
+  -- * IO lifting
+  IOTCB                      :: IO a -> LIO l a
+
+  -- * Exception handling
+  Catch                      :: (Label l, Exception e) => LIO l a -> (e -> LIO l a) -> LIO l a
+
+  -- * Errors
+  WithContext                :: String -> LIO l a -> LIO l a
+
+  -- * Concurrency operators
+  ForkLIO                    :: LIO l () -> LIO l ()
+  LForkP                     :: PrivDesc l p => Priv p -> l -> LIO l a -> LIO l (LabeledResult l a)
+  LWaitP                     :: PrivDesc l p => Priv p -> LabeledResult l a -> LIO l a
+  TryLWaitP                  :: PrivDesc l p => Priv p -> LabeledResult l a -> LIO l (Maybe a)
+  TimedLWaitP                :: PrivDesc l p => Priv p -> LabeledResult l a -> Int -> LIO l a
+
+  -- * Label operations
+  WithMLabelP                :: PrivDesc l p => Priv p -> MLabel policy l -> LIO l a -> LIO l a
+  ModifyMLabelP              :: (PrivDesc l p, MLabelPolicy policy l) => Priv p -> MLabel policy l -> (l -> LIO l l) -> LIO l ()
+  
+  deriving (Typeable)
 
 instance Monad (LIO l) where
   {-# INLINE return #-}
-  return = LIOTCB . const . return
+  return = Return
   {-# INLINE (>>=) #-}
-  (LIOTCB ma) >>= k = LIOTCB $ \s -> do
-    a <- ma s
-    case k a of LIOTCB mb -> mb s
-  fail = LIOTCB . const . fail
+  (>>=) = Bind
+  fail = Fail
 
 instance Functor (LIO l) where
-  fmap f (LIOTCB a) = LIOTCB $ \s -> a s >>= return . f
+  fmap f l =  l >>= (return . f)
 -- fmap typically isn't inlined, so we don't inline our definition,
 -- but we do define it in terms of >>= and return (which are inlined)
 
@@ -87,19 +146,17 @@ instance Applicative (LIO l) where
 -- internal state to trusted code.
 getLIOStateTCB :: LIO l (LIOState l)
 {-# INLINE getLIOStateTCB #-}
-getLIOStateTCB = LIOTCB readIORef
+getLIOStateTCB = GetLIOStateTCB 
 
 -- | Set internal state.
 putLIOStateTCB :: LIOState l -> LIO l ()
 {-# INLINE putLIOStateTCB #-}
-putLIOStateTCB s = LIOTCB $ \sp -> writeIORef sp $! s
+putLIOStateTCB = PutLIOStateTCB 
 
 -- | Update the internal state given some function.
 modifyLIOStateTCB :: (LIOState l -> LIOState l) -> LIO l ()
 {-# INLINE modifyLIOStateTCB #-}
-modifyLIOStateTCB f = do
-  s <- getLIOStateTCB
-  putLIOStateTCB (f s)
+modifyLIOStateTCB = ModifyLIOStateTCB
 
 --
 -- Executing IO actions
@@ -110,7 +167,7 @@ modifyLIOStateTCB f = do
 -- the 'IO' computation will not violate IFC policy.
 ioTCB :: IO a -> LIO l a
 {-# INLINE ioTCB #-}
-ioTCB = LIOTCB . const
+ioTCB = IOTCB 
 
 --
 -- Exception handling
@@ -140,26 +197,6 @@ makeCatchable :: SomeException -> SomeException
 makeCatchable e@(SomeException einner) =
   case cast einner of Just (UncatchableTCB enew) -> SomeException enew
                       Nothing                    -> e
-
---
--- Privileges
---
-
--- | A newtype wrapper that can be used by trusted code to transform a
--- powerless description of privileges into actual privileges.  The
--- constructor, 'PrivTCB', is dangerous as it allows creation of
--- arbitrary privileges.  Hence it is only exported by the unsafe
--- module "LIO.TCB".  A safe way to create arbitrary privileges is to
--- call 'privInit' (see "LIO.Run#v:privInit") from the 'IO' monad
--- before running your 'LIO' computation.
-newtype Priv a = PrivTCB a deriving (Show, Eq, Typeable)
-
-instance Monoid p => Monoid (Priv p) where
-  mempty = PrivTCB mempty
-  {-# INLINE mappend #-}
-  mappend (PrivTCB m1) (PrivTCB m2) = PrivTCB $ m1 `mappend` m2
-  {-# INLINE mconcat #-}
-  mconcat ps = PrivTCB $ mconcat $ map (\(PrivTCB p) -> p) ps
 
 --
 -- Pure labeled values
@@ -241,3 +278,8 @@ data LabeledResult l a = LabeledResultTCB {
 
 instance LabelOf LabeledResult where
   labelOf = lresLabelTCB
+
+-- | Class of policies for when it is permissible to update an
+-- 'MLabel'.
+class MLabelPolicy policy l where
+  mlabelPolicy :: (PrivDesc l p) => policy -> p -> l -> l -> LIO l ()

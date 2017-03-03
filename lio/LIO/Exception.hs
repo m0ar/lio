@@ -1,5 +1,4 @@
 {-# LANGUAGE Trustworthy #-}
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ExistentialQuantification #-}
 
 {- |
@@ -21,13 +20,11 @@ module LIO.Exception (
   , onException, finally, bracket, evaluate
   ) where
 
-import safe Prelude ((.), ($), (==), undefined, flip)
-import safe Data.Maybe
+import safe Prelude ((.), ($), flip)
 import safe Data.Either
 import safe Control.Exception (Exception(..), SomeException(..))
 import safe qualified Control.Exception as IO
 import safe Control.Monad
-import safe Data.Typeable
 
 import LIO.TCB
 import safe LIO.Label
@@ -44,14 +41,7 @@ throwLIO = ioTCB . IO.throwIO
 -- exceeding the clarance, and an exception is always thrown at the
 -- time this happens.)
 catch :: (Label l, Exception e) => LIO l a -> (e -> LIO l a) -> LIO l a
-catch (LIOTCB io) h =
-  LIOTCB $ \s -> io s `IO.catch` \e -> case safeh e of LIOTCB ioe -> ioe s
-  where uncatchableType = typeOf (undefined :: UncatchableTCB)
-        safeh e@(SomeException einner) = do
-          when (typeOf einner == uncatchableType) $ throwLIO e
-          LIOState l c <- getLIOStateTCB
-          unless (l `canFlowTo` c) $ throwLIO e
-          maybe (throwLIO e) h $ fromException e
+catch = Catch
 
 -- | A version of 'catch' with the arguments swapped around.
 handle :: (Label l, Exception e) => (e -> LIO l a) -> LIO l a -> LIO l a
@@ -71,8 +61,6 @@ finally io cleanup = do
   void cleanup
   return a
   
-
-
 -- | When you want to acquire a resource, do some work with it, and
 -- then release the resource, it is a good idea to use @bracket@,
 -- because bracket will install the necessary exception handler to

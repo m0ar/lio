@@ -21,7 +21,7 @@ module LIO.Label (
 import safe Data.Monoid ()
 import safe Data.Typeable
 
-import LIO.TCB
+import LIO.Priv
 
 {- $Labels
 
@@ -115,6 +115,7 @@ class (Eq l, Show l, Read l, Typeable l) => Label l where
   --
   -- > infix 4 `canFlowTo`
   canFlowTo :: l -> l -> Bool
+
 
 infixl 5 `lub`, `glb`
 infix 4 `canFlowTo`
