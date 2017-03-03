@@ -100,6 +100,12 @@ data LIO l a where
   LWaitP :: Priv p -> LabeledResult l a -> LIO l a
   TryLWaitP :: Priv p -> LabeledResult l a -> LIO l (Maybe a)
   TimedLWaitP :: Priv p -> LabeledResult l a -> Int -> LIO l a
+  
+  -- * Label operations
+  -- TODO: Stricter type?
+  WithMLabelP :: Priv p -> mlabel -> LIO l a -> LIO l a
+  ModifyMLabelP :: Priv p -> mlabel -> (l -> LIO l l) -> LIO l ()
+  
   deriving (Typeable)
 
 instance Monad (LIO l) where

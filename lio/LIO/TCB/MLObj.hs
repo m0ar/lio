@@ -116,45 +116,14 @@ readMLabelP p (MLabelTCB ll r _ _) = do
 -- action.
 withMLabelP :: (PrivDesc l p) =>
                Priv p -> MLabel policy l -> LIO l a -> LIO l a
-withMLabelP p (MLabelTCB ll r mv _) action = LIOTCB $ \s -> do
-  let run (LIOTCB io) = io s
-  run $ taintP p ll
-  tid <- myThreadId
-  u <- newUnique
-  let check lnew = do
-        LIOState { lioLabel = lcur, lioClearance = ccur } <- readIORef s
-        if canFlowToP p lcur lnew && canFlowToP p lnew lcur
-          then return True
-          else do IO.throwTo tid LabelError {
-                      lerrContext = []
-                    , lerrFailure = "withMLabelP label changed"
-                    , lerrCurLabel = lcur
-                    , lerrCurClearance = ccur
-                    , lerrPrivs = [GenericPrivDesc $ privDesc p]
-                    , lerrLabels = [lnew]
-                    }
-                  return False
-      enter = modifyMVar_ mv $ \m -> do
-        void $ readIORef r >>= check
-        return $ Map.insert u check m
-      exit = modifyMVar_ mv $ return . Map.delete u
-  IO.bracket_ enter exit $ run action
+withMLabelP = WithMLabelP
 
 -- | Change the mutable label in an 'MLabel'.  Raises asynchronous
 -- exceptions in other threads that are inside 'withMLabelP' if the
 -- new label revokes their access.
 modifyMLabelP :: (PrivDesc l p, MLabelPolicy policy l) =>
                  Priv p -> MLabel policy l -> (l -> LIO l l) -> LIO l ()
-modifyMLabelP p (MLabelTCB ll r mv pl) fn = withContext "modifyMLabelP" $ do
-  guardWriteP p ll
-  s <- LIOTCB return
-  let run (LIOTCB io) = io s
-  ioTCB $ modifyMVar_ mv $ \m -> do
-    lold <- readIORef r
-    lnew <- run $ fn lold
-    () <- run $ mlabelPolicy pl p lold lnew
-    writeIORef r lnew
-    Map.fromList `fmap` filterM (($ lnew) . snd) (Map.assocs m)
+modifyMLabelP = ModifyMLabelP 
 
 -- | @newMLabelP policy ll l@ creates an 'MLabel'.  @policy@ is a
 -- policy specifying under what conditions it is permissible to change
