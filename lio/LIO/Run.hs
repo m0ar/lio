@@ -51,7 +51,7 @@ runLIO' ioRef lio =  case lio of
       unless (canFlowTo l cnew && canFlowTo cnew c) $
         labelError "setClearance" [cnew]
       PutLIOStateTCB $ LIOState l cnew
-    SetClearanceP p cnew -> undefined -- It was 2 much work moving PrivDesc so TCB can use it
+    SetClearanceP _ _ -> undefined -- It was 2 much work moving PrivDesc so TCB can use it
     ScopeClearance action -> do
       LIOState _ c <- readIORef ioRef
       ea <- IO.try $ runLIO' ioRef action
@@ -65,6 +65,46 @@ runLIO' ioRef lio =  case lio of
                                   , lerrCurClearance = c
                                   , lerrPrivs = []
                                   , lerrLabels = [] }
+    WithClearance c lio -> runLIO' ioRef $
+      ScopeClearance $ SetClearance c >> lio
+    WithClearanceP p c lio -> runLIO' ioRef $
+      ScopeClearance $ SetClearanceP p c >> lio
+    GuardAlloc newl -> runLIO' ioRef $ do
+      LIOState { lioLabel = l, lioClearance = c } <- GetLIOStateTCB
+      unless (canFlowTo l newl && canFlowTo newl c) $
+        labelError "guardAllocP" [newl]
+    GuardAllocP _ _ -> undefined -- PrivDesc again
+    Taint newl -> runLIO' ioRef $ do
+      LIOState { lioLabel = l, lioClearance = c } <- GetLIOStateTCB
+      let l' = l `lub` newl
+      unless (l' `canFlowTo` c) $ labelError "taint" [newl]
+      ModifyLIOStateTCB $ \s -> s { lioLabel = l' }
+    TaintP _ _ -> undefined -- PrivDesc again
+    GuardWrite newl -> runLIO' ioRef $
+      WithContext "guardWrite" $ do
+      GuardAlloc newl
+      Taint newl
+    GuardWriteP _ _-> undefined -- PrivDesc again
+    Return a -> return a
+    Bind _ _ -> undefined
+    Fail s -> fail s
+    GetLIOStateTCB -> readIORef ioRef
+    PutLIOStateTCB s -> writeIORef ioRef s
+    ModifyLIOStateTCB f -> do
+      s <- readIORef ioRef
+      writeIORef ioRef (f s)
+    IOTCB a -> a
+    Catch _ _ -> undefined
+    WithContext ctx lio ->
+      runLIO' ioRef lio `IO.catch` \e ->
+      IO.throwIO $ annotate ctx (e :: AnyLabelError)
+    ForkLIO _ -> undefined
+    LForkP _ _ _ -> undefined
+    LWaitP _ _ -> undefined
+    TryLWaitP _ _ -> undefined
+    TimedLWaitP _ _ _ -> undefined
+    WithMLabelP _ _ _ -> undefined
+    ModifyMLabelP _ _ _ -> undefined
 
 
 -- | A variant of 'runLIO' that returns results in 'Right' and

@@ -67,13 +67,13 @@ data LIO l a where
   SetClearance      :: Label l => l -> LIO l ()
   SetClearanceP     :: Label l => Priv p -> l -> LIO l ()
   ScopeClearance    :: Label l => LIO l a -> LIO l a
-  WithClearance     :: l -> LIO l a -> LIO l a
-  WithClearanceP    :: Priv p -> l -> LIO l a -> LIO l a
-  GuardAlloc        :: l -> LIO l ()
+  WithClearance     :: Label l => l -> LIO l a -> LIO l a
+  WithClearanceP    :: Label l => Priv p -> l -> LIO l a -> LIO l a
+  GuardAlloc        :: Label l => l -> LIO l ()
   GuardAllocP       :: Priv p -> l -> LIO l ()
-  Taint             :: l -> LIO l ()
+  Taint             :: Label l => l -> LIO l ()
   TaintP            :: Priv p -> l -> LIO l ()
-  GuardWrite        :: l -> LIO l ()
+  GuardWrite        :: Label l => l -> LIO l ()
   GuardWriteP       :: Priv p -> l -> LIO l ()
   
   -- * Monadic operations
