@@ -42,6 +42,7 @@ import safe Control.Monad
 import safe Data.Monoid ()
 import safe Data.IORef
 import safe Data.Typeable
+import safe LIO.LabelClass (Label)
 
 --
 -- LIO Monad
@@ -63,7 +64,7 @@ data LIO l a where
   SetLabel          :: l -> LIO l ()
   SetLabelP         :: Priv p -> l -> LIO l ()
   GetClearance      :: LIO l l
-  SetClearance      :: l -> LIO l ()
+  SetClearance      :: Label l => l -> LIO l ()
   SetClearanceP     :: Priv p -> l -> LIO l ()
   ScopeClearance    :: LIO l a -> LIO l a
   WithClearance     :: l -> LIO l a -> LIO l a

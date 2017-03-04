@@ -15,9 +15,11 @@ module LIO.Run (LIOState(..), runLIO, tryLIO, evalLIO, privInit) where
 import safe Control.Exception
 import safe qualified Control.Exception as IO
 import safe Data.IORef
+import safe Control.Monad
 
 import safe LIO.Label
 import LIO.TCB
+import safe LIO.Error
 
 -- | Execute an 'LIO' action, returning its result and the final label
 -- state as a pair.  Note that it returns a pair whether or not the
@@ -28,13 +30,27 @@ import LIO.TCB
 runLIO :: LIO l a -> LIOState l -> IO (a, LIOState l)
 runLIO lio s0 = do
   sp <- newIORef s0
-  a  <- runLIO' lio sp `IO.catch` \e -> return $ throw $ makeCatchable e
+  a  <- runLIO' sp lio `IO.catch` \e -> return $ throw $ makeCatchable e
   s1 <- readIORef sp
   return (a, s1)
   
-runLIO' :: LIO l a -> IORef (LIOState l) -> IO a  
-runLIO' lio ioRef =  case lio of
-    GetLabel -> lioLabel <$> readIORef ioRef
+runLIO' :: IORef (LIOState l) -> LIO l a -> IO a  
+runLIO' ioRef lio =  case lio of
+    GetLabel      -> runLIO' ioRef $ lioLabel `liftM` getLIOStateTCB
+    SetLabel l    -> runLIO' ioRef $
+      WithContext "setLabel" $ do
+      GuardAllocP noPrivs l
+      ModifyLIOStateTCB $ \s -> s { lioLabel = l }
+    SetLabelP p l  -> runLIO' ioRef $
+      WithContext "setLabelP" $ do
+      GuardAllocP p l
+      ModifyLIOStateTCB $ \s -> s { lioLabel = l }
+    GetClearance   -> runLIO' ioRef $ lioClearance `liftM` GetLIOStateTCB
+    SetClearance cnew -> runLIO' ioRef $ do
+      LIOState { lioLabel = l, lioClearance = c } <- GetLIOStateTCB
+      unless (canFlowTo l cnew && canFlowTo cnew c) $
+        labelError "setClearance" [cnew]
+      PutLIOStateTCB $ LIOState l cnew
 
 -- | A variant of 'runLIO' that returns results in 'Right' and
 -- exceptions in 'Left', much like the standard library 'try'
