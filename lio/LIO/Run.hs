@@ -51,6 +51,21 @@ runLIO' ioRef lio =  case lio of
       unless (canFlowTo l cnew && canFlowTo cnew c) $
         labelError "setClearance" [cnew]
       PutLIOStateTCB $ LIOState l cnew
+    SetClearanceP p cnew -> undefined -- It was 2 much work moving PrivDesc so TCB can use it
+    ScopeClearance action -> do
+      LIOState _ c <- readIORef ioRef
+      ea <- IO.try $ runLIO' ioRef action
+      LIOState l _ <- readIORef ioRef
+      writeIORef ioRef (LIOState l c)
+      if l `canFlowTo` c
+        then either (IO.throwIO :: SomeException -> IO a) return ea
+        else IO.throwIO LabelError { lerrContext = []
+                                  , lerrFailure = "scopeClearance"
+                                  , lerrCurLabel = l
+                                  , lerrCurClearance = c
+                                  , lerrPrivs = []
+                                  , lerrLabels = [] }
+
 
 -- | A variant of 'runLIO' that returns results in 'Right' and
 -- exceptions in 'Left', much like the standard library 'try'

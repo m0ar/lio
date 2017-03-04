@@ -65,8 +65,8 @@ data LIO l a where
   SetLabelP         :: Priv p -> l -> LIO l ()
   GetClearance      :: LIO l l
   SetClearance      :: Label l => l -> LIO l ()
-  SetClearanceP     :: Priv p -> l -> LIO l ()
-  ScopeClearance    :: LIO l a -> LIO l a
+  SetClearanceP     :: Label l => Priv p -> l -> LIO l ()
+  ScopeClearance    :: Label l => LIO l a -> LIO l a
   WithClearance     :: l -> LIO l a -> LIO l a
   WithClearanceP    :: Priv p -> l -> LIO l a -> LIO l a
   GuardAlloc        :: l -> LIO l ()
