@@ -13,6 +13,7 @@
 module LIO.Run (LIOState(..), runLIO, tryLIO, evalLIO, privInit) where
 
 import safe Control.Exception
+import safe qualified Control.Concurrent as IO
 import safe qualified Control.Exception as IO
 import safe Data.IORef
 import safe Control.Monad
@@ -131,11 +132,69 @@ runLIO' ioRef lio =  case lio of
     WithContext ctx lio ->
       runLIO' ioRef lio `IO.catch` \e ->
       IO.throwIO $ annotate ctx (e :: AnyLabelError)
-    ForkLIO _ -> undefined
-    LForkP _ _ _ -> undefined
-    LWaitP _ _ -> undefined
-    TryLWaitP _ _ -> undefined
-    TimedLWaitP _ _ _ -> undefined
+    ForkLIO lio -> runLIO' ioRef $ do
+      s <- getLIOStateTCB
+      ioTCB $ void $ IO.forkIO $ do
+        ((), _) <- runLIO lio s
+        return ()
+    LForkP p l action -> runLIO' ioRef $ do
+      withContext "lForkP" $ GuardAllocP p l
+      mv <- ioTCB IO.newEmptyMVar
+      st <- ioTCB $ newIORef LResEmpty
+      s0 <- getLIOStateTCB
+      tid <- ioTCB $ IO.mask $ \unmask -> IO.forkIO $ do
+        sp <- newIORef s0
+        ea <- IO.try $ unmask $ runLIO' sp action
+        LIOState lEnd _ <- readIORef sp
+        writeIORef st $ case ea of
+          _ | not (lEnd `canFlowTo` l) -> LResLabelTooHigh lEnd
+          Left e                       -> LResResult $ IO.throw $ makeCatchable e
+          Right a                      -> LResResult a
+        IO.putMVar mv ()
+      return $ LabeledResultTCB tid l mv st
+    LWaitP p (LabeledResultTCB _ l mv st) -> runLIO' ioRef $
+      withContext "lWaitP" (TaintP p l) >> go
+      where go = ioTCB (readIORef st) >>= check
+            check LResEmpty = ioTCB (IO.readMVar mv) >> go
+            check (LResResult a) = return $! a
+            check (LResLabelTooHigh lnew) = do
+              modifyLIOStateTCB $ \s -> s {
+                lioLabel = downgradeP p lnew `lub` lioLabel s }
+              throwLIO ResultExceedsLabel {
+                  relContext = []
+                , relLocation = "lWaitP"
+                , relDeclaredLabel = l
+                , relActualLabel = Just lnew }
+    TryLWaitP p (LabeledResultTCB _ rl _ st) -> runLIO' ioRef $
+      withContext "trylWaitP" (TaintP p rl) >> ioTCB (readIORef st) >>= check
+      where check LResEmpty = return Nothing
+            check (LResResult a) = return . Just $! a
+            check (LResLabelTooHigh lnew) = do
+              curl <- GetLabel
+              if canFlowToP p lnew curl
+                then throwLIO ResultExceedsLabel {
+                        relContext = []
+                      , relLocation = "trylWaitP"
+                      , relDeclaredLabel = rl
+                      , relActualLabel = Just lnew }
+                else return Nothing
+    TimedLWaitP p lr@(LabeledResultTCB t rl mvb _) to -> runLIO' ioRef $
+      withContext "timedlWaitP" (do GuardWriteP p rl
+                                    TryLWaitP p lr >>= go)
+      where go (Just a) = return a
+            go Nothing = do
+              mvk <- ioTCB $ IO.newEmptyMVar
+              tk <- ioTCB $ IO.forkIO $ IO.finally (IO.threadDelay to) $ do
+                IO.putMVar mvk ()
+                IO.throwTo t (UncatchableTCB IO.ThreadKilled)
+              ioTCB $ IO.readMVar mvb
+              TryLWaitP p lr >>= maybe
+                (ioTCB (IO.takeMVar mvk) >> throwLIO failure)
+                (\a -> ioTCB (IO.killThread tk) >> return a)
+            failure = ResultExceedsLabel { relContext = []
+                                        , relLocation = "timedWaitP"
+                                        , relDeclaredLabel = rl
+                                        , relActualLabel = Nothing }
     WithMLabelP _ _ _ -> undefined
     ModifyMLabelP _ _ _ -> undefined
 
