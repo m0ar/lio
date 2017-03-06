@@ -20,6 +20,8 @@ import safe Control.Monad
 import safe LIO.Label
 import LIO.TCB
 import safe LIO.Error
+import safe Data.Typeable
+import safe LIO.Exception (throwLIO)
 
 -- | Execute an 'LIO' action, returning its result and the final label
 -- state as a pair.  Note that it returns a pair whether or not the
@@ -108,7 +110,16 @@ runLIO' ioRef lio =  case lio of
       s <- readIORef ioRef
       writeIORef ioRef (f s)
     IOTCB a -> a
-    Catch _ _ -> undefined
+    Catch lio' h -> do
+      let io = runLIO' ioRef lio'
+      io `IO.catch` \e -> runLIO' ioRef (safeh e)
+      where
+        uncatchableType = typeOf (undefined :: UncatchableTCB)
+        safeh e@(SomeException einner) = do
+          when (typeOf einner == uncatchableType) $ throwLIO e
+          LIOState l c <- getLIOStateTCB
+          unless (l `canFlowTo` c) $ throwLIO e
+          maybe (throwLIO e) h $ fromException e
     WithContext ctx lio ->
       runLIO' ioRef lio `IO.catch` \e ->
       IO.throwIO $ annotate ctx (e :: AnyLabelError)

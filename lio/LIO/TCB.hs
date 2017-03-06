@@ -90,7 +90,7 @@ data LIO l a where
   IOTCB                      :: IO a -> LIO l a
 
   -- * Exception handling
-  Catch                      :: LIO l a -> (e -> LIO l a) -> LIO l a
+  Catch                      :: (Label l, Exception e) => LIO l a -> (e -> LIO l a) -> LIO l a
 
   -- * Errors
   WithContext                :: String -> LIO l a -> LIO l a
