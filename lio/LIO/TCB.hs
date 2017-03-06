@@ -42,7 +42,8 @@ import safe Control.Monad
 import safe Data.Monoid ()
 import safe Data.IORef
 import safe Data.Typeable
-import safe LIO.LabelClass (Label)
+import safe LIO.Label
+import LIO.PrivClass (Priv(..))
 
 --
 -- LIO Monad
@@ -59,53 +60,52 @@ data LIOState l = LIOState { lioLabel     :: !l -- ^ Current label.
 -- runtime functions can use 'ioTCB' to perform 'IO' actions (which
 -- they should only do after appropriately checking labels).
 data LIO l a where 
-  --LIOTCB (IORef (LIOState l) -> IO a) 
-  GetLabel          :: LIO l l
-  SetLabel          :: l -> LIO l ()
-  SetLabelP         :: Priv p -> l -> LIO l ()
-  GetClearance      :: LIO l l
-  SetClearance      :: Label l => l -> LIO l ()
-  SetClearanceP     :: Label l => Priv p -> l -> LIO l ()
-  ScopeClearance    :: Label l => LIO l a -> LIO l a
-  WithClearance     :: Label l => l -> LIO l a -> LIO l a
-  WithClearanceP    :: Label l => Priv p -> l -> LIO l a -> LIO l a
-  GuardAlloc        :: Label l => l -> LIO l ()
-  GuardAllocP       :: Priv p -> l -> LIO l ()
-  Taint             :: Label l => l -> LIO l ()
-  TaintP            :: Priv p -> l -> LIO l ()
-  GuardWrite        :: Label l => l -> LIO l ()
-  GuardWriteP       :: Priv p -> l -> LIO l ()
-  
+  GetLabel                   :: LIO l l
+  SetLabel                   :: l -> LIO l ()
+  SetLabelP                  :: PrivDesc p l => Priv p -> l -> LIO l ()
+  GetClearance               :: LIO l l
+  SetClearance               :: l -> LIO l ()
+  SetClearanceP              :: PrivDesc p l => Priv p -> l -> LIO l ()
+  ScopeClearance             :: LIO l a -> LIO l a
+  WithClearance              :: l -> LIO l a -> LIO l a
+  WithClearanceP             :: PrivDesc p l => Priv p -> l -> LIO l a -> LIO l a
+  GuardAlloc                 :: l -> LIO l ()
+  GuardAllocP                :: PrivDesc p l => Priv p -> l -> LIO l ()
+  Taint                      :: l -> LIO l ()
+  TaintP                     :: PrivDesc p l => Priv p -> l -> LIO l ()
+  GuardWrite                 :: l -> LIO l ()
+  GuardWriteP                :: PrivDesc p l => Priv p -> l -> LIO l ()
+
   -- * Monadic operations
-  Return            :: a -> LIO l a
-  Bind              :: LIO l a -> (a -> LIO l b) -> LIO l b
-  Fail              :: String -> LIO l a
-  
+  Return                     :: a -> LIO l a
+  Bind                       :: LIO l a -> (a -> LIO l b) -> LIO l b
+  Fail                       :: String -> LIO l a
+
   -- * State modifiers
-  GetLIOStateTCB    :: LIO l (LIOState l)
-  PutLIOStateTCB    :: LIOState l -> LIO l ()
-  ModifyLIOStateTCB :: (LIOState l -> LIOState l) -> LIO l ()
-  
+  GetLIOStateTCB             :: LIO l (LIOState l)
+  PutLIOStateTCB             :: LIOState l -> LIO l ()
+  ModifyLIOStateTCB          :: (LIOState l -> LIOState l) -> LIO l ()
+
   -- * IO lifting
-  IOTCB             :: IO a -> LIO l a
+  IOTCB                      :: IO a -> LIO l a
 
   -- * Exception handling
-  Catch :: LIO l a -> (e -> LIO l a) -> LIO l a
- 
+  Catch                      :: LIO l a -> (e -> LIO l a) -> LIO l a
+
   -- * Errors
-  WithContext :: String -> LIO l a -> LIO l a
+  WithContext                :: String -> LIO l a -> LIO l a
 
   -- * Concurrency operators
-  ForkLIO :: LIO l () -> LIO l ()
-  LForkP :: Priv p -> l -> LIO l a -> LIO l (LabeledResult l a)
-  LWaitP :: Priv p -> LabeledResult l a -> LIO l a
-  TryLWaitP :: Priv p -> LabeledResult l a -> LIO l (Maybe a)
-  TimedLWaitP :: Priv p -> LabeledResult l a -> Int -> LIO l a
-  
+  ForkLIO                    :: LIO l () -> LIO l ()
+  LForkP                     :: PrivDesc p l => Priv p -> l -> LIO l a -> LIO l (LabeledResult l a)
+  LWaitP                     :: PrivDesc p l => Priv p -> LabeledResult l a -> LIO l a
+  TryLWaitP                  :: PrivDesc p l => Priv p -> LabeledResult l a -> LIO l (Maybe a)
+  TimedLWaitP                :: PrivDesc p l => Priv p -> LabeledResult l a -> Int -> LIO l a
+
   -- * Label operations
   -- TODO: Stricter type?
-  WithMLabelP :: Priv p -> mlabel -> LIO l a -> LIO l a
-  ModifyMLabelP :: Priv p -> mlabel -> (l -> LIO l l) -> LIO l ()
+  WithMLabelP                :: PrivDesc p l => Priv p -> mlabel -> LIO l a -> LIO l a
+  ModifyMLabelP              :: PrivDesc p l => Priv p -> mlabel -> (l -> LIO l l) -> LIO l ()
   
   deriving (Typeable)
 
@@ -187,26 +187,6 @@ makeCatchable :: SomeException -> SomeException
 makeCatchable e@(SomeException einner) =
   case cast einner of Just (UncatchableTCB enew) -> SomeException enew
                       Nothing                    -> e
-
---
--- Privileges
---
-
--- | A newtype wrapper that can be used by trusted code to transform a
--- powerless description of privileges into actual privileges.  The
--- constructor, 'PrivTCB', is dangerous as it allows creation of
--- arbitrary privileges.  Hence it is only exported by the unsafe
--- module "LIO.TCB".  A safe way to create arbitrary privileges is to
--- call 'privInit' (see "LIO.Run#v:privInit") from the 'IO' monad
--- before running your 'LIO' computation.
-newtype Priv a = PrivTCB a deriving (Show, Eq, Typeable)
-
-instance Monoid p => Monoid (Priv p) where
-  mempty = PrivTCB mempty
-  {-# INLINE mappend #-}
-  mappend (PrivTCB m1) (PrivTCB m2) = PrivTCB $ m1 `mappend` m2
-  {-# INLINE mconcat #-}
-  mconcat ps = PrivTCB $ mconcat $ map (\(PrivTCB p) -> p) ps
 
 --
 -- Pure labeled values

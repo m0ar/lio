@@ -27,31 +27,35 @@ import safe LIO.Error
 -- re-throw the exception, but the label state will always be valid.
 --
 -- See also 'evalLIO'.
-runLIO :: LIO l a -> LIOState l -> IO (a, LIOState l)
+runLIO :: Label l => LIO l a -> LIOState l -> IO (a, LIOState l)
 runLIO lio s0 = do
   sp <- newIORef s0
   a  <- runLIO' sp lio `IO.catch` \e -> return $ throw $ makeCatchable e
   s1 <- readIORef sp
   return (a, s1)
   
-runLIO' :: IORef (LIOState l) -> LIO l a -> IO a  
+runLIO' :: Label l => IORef (LIOState l) -> LIO l a -> IO a  
 runLIO' ioRef lio =  case lio of
     GetLabel      -> runLIO' ioRef $ lioLabel `liftM` getLIOStateTCB
     SetLabel l    -> runLIO' ioRef $
       WithContext "setLabel" $ do
-      GuardAllocP noPrivs l
-      ModifyLIOStateTCB $ \s -> s { lioLabel = l }
+        GuardAlloc l
+        ModifyLIOStateTCB $ \s -> s { lioLabel = l }
     SetLabelP p l  -> runLIO' ioRef $
       WithContext "setLabelP" $ do
-      GuardAllocP p l
-      ModifyLIOStateTCB $ \s -> s { lioLabel = l }
-    GetClearance   -> runLIO' ioRef $ lioClearance `liftM` GetLIOStateTCB
+        GuardAllocP p l
+        ModifyLIOStateTCB $ \s -> s { lioLabel = l }
+    GetClearance   -> runLIO' ioRef $ lioClearance `liftM` getLIOStateTCB
     SetClearance cnew -> runLIO' ioRef $ do
-      LIOState { lioLabel = l, lioClearance = c } <- GetLIOStateTCB
+      LIOState { lioLabel = l, lioClearance = c } <- getLIOStateTCB
       unless (canFlowTo l cnew && canFlowTo cnew c) $
         labelError "setClearance" [cnew]
       PutLIOStateTCB $ LIOState l cnew
-    SetClearanceP _ _ -> undefined -- It was 2 much work moving PrivDesc so TCB can use it
+    SetClearanceP p cnew -> runLIO' ioRef $ do
+      LIOState l c <- getLIOStateTCB
+      unless (canFlowTo l cnew && canFlowToP p cnew c) $
+        labelErrorP "setClearanceP" p [cnew]
+      putLIOStateTCB $ LIOState l cnew
     ScopeClearance action -> do
       LIOState _ c <- readIORef ioRef
       ea <- IO.try $ runLIO' ioRef action
@@ -70,20 +74,20 @@ runLIO' ioRef lio =  case lio of
     WithClearanceP p c lio -> runLIO' ioRef $
       ScopeClearance $ SetClearanceP p c >> lio
     GuardAlloc newl -> runLIO' ioRef $ do
-      LIOState { lioLabel = l, lioClearance = c } <- GetLIOStateTCB
+      LIOState { lioLabel = l, lioClearance = c } <- getLIOStateTCB
       unless (canFlowTo l newl && canFlowTo newl c) $
         labelError "guardAllocP" [newl]
     GuardAllocP _ _ -> undefined -- PrivDesc again
     Taint newl -> runLIO' ioRef $ do
-      LIOState { lioLabel = l, lioClearance = c } <- GetLIOStateTCB
+      LIOState { lioLabel = l, lioClearance = c } <- getLIOStateTCB
       let l' = l `lub` newl
       unless (l' `canFlowTo` c) $ labelError "taint" [newl]
       ModifyLIOStateTCB $ \s -> s { lioLabel = l' }
     TaintP _ _ -> undefined -- PrivDesc again
     GuardWrite newl -> runLIO' ioRef $
       WithContext "guardWrite" $ do
-      GuardAlloc newl
-      Taint newl
+        GuardAlloc newl
+        Taint newl
     GuardWriteP _ _-> undefined -- PrivDesc again
     Return a -> return a
     Bind _ _ -> undefined
@@ -110,7 +114,7 @@ runLIO' ioRef lio =  case lio of
 -- | A variant of 'runLIO' that returns results in 'Right' and
 -- exceptions in 'Left', much like the standard library 'try'
 -- function.
-tryLIO :: LIO l a -> LIOState l -> IO (Either SomeException a, LIOState l)
+tryLIO :: Label l => LIO l a -> LIOState l -> IO (Either SomeException a, LIOState l)
 tryLIO lio s0 = runLIO lio s0 >>= tryit
   where tryit (a, s) = do
           ea <- try (evaluate a)
@@ -129,7 +133,7 @@ tryLIO lio s0 = runLIO lio s0 >>= tryit
 --
 -- Unlike 'runLIO', this function throws an exception if the
 -- underlying 'LIO' action terminates with an exception.
-evalLIO :: LIO l a -> LIOState l -> IO a
+evalLIO :: Label l => LIO l a -> LIOState l -> IO a
 evalLIO lio s = do
   (a, _) <- runLIO lio s
   return $! a
