@@ -77,18 +77,28 @@ runLIO' ioRef lio =  case lio of
       LIOState { lioLabel = l, lioClearance = c } <- getLIOStateTCB
       unless (canFlowTo l newl && canFlowTo newl c) $
         labelError "guardAllocP" [newl]
-    GuardAllocP _ _ -> undefined -- PrivDesc again
+    GuardAllocP p newl -> runLIO' ioRef $ do
+      LIOState { lioLabel = l, lioClearance = c } <- getLIOStateTCB
+      unless (canFlowToP p l newl && canFlowTo newl c) $
+        labelErrorP "guardAllocP" p [newl]
     Taint newl -> runLIO' ioRef $ do
       LIOState { lioLabel = l, lioClearance = c } <- getLIOStateTCB
       let l' = l `lub` newl
       unless (l' `canFlowTo` c) $ labelError "taint" [newl]
       ModifyLIOStateTCB $ \s -> s { lioLabel = l' }
-    TaintP _ _ -> undefined -- PrivDesc again
+    TaintP p newl -> runLIO' ioRef $ do
+      LIOState { lioLabel = l, lioClearance = c } <- getLIOStateTCB
+      let l' = l `lub` downgradeP p newl
+      unless (l' `canFlowTo` c) $ labelErrorP "taintP" p [newl]
+      modifyLIOStateTCB $ \s -> s { lioLabel = l' }
     GuardWrite newl -> runLIO' ioRef $
       WithContext "guardWrite" $ do
         GuardAlloc newl
         Taint newl
-    GuardWriteP _ _-> undefined -- PrivDesc again
+    GuardWriteP p newl-> runLIO' ioRef $
+      withContext "guardWriteP" $ do
+        GuardAllocP p newl
+        TaintP p newl
     Return a -> return a
     Bind _ _ -> undefined
     Fail s -> fail s
