@@ -62,19 +62,19 @@ data LIOState l = LIOState { lioLabel     :: !l -- ^ Current label.
 data LIO l a where 
   GetLabel                   :: LIO l l
   SetLabel                   :: l -> LIO l ()
-  SetLabelP                  :: PrivDesc p l => Priv p -> l -> LIO l ()
+  SetLabelP                  :: PrivDesc l p => Priv p -> l -> LIO l ()
   GetClearance               :: LIO l l
   SetClearance               :: l -> LIO l ()
-  SetClearanceP              :: PrivDesc p l => Priv p -> l -> LIO l ()
+  SetClearanceP              :: PrivDesc l p => Priv p -> l -> LIO l ()
   ScopeClearance             :: LIO l a -> LIO l a
   WithClearance              :: l -> LIO l a -> LIO l a
-  WithClearanceP             :: PrivDesc p l => Priv p -> l -> LIO l a -> LIO l a
+  WithClearanceP             :: PrivDesc l p => Priv p -> l -> LIO l a -> LIO l a
   GuardAlloc                 :: l -> LIO l ()
-  GuardAllocP                :: PrivDesc p l => Priv p -> l -> LIO l ()
+  GuardAllocP                :: PrivDesc l p => Priv p -> l -> LIO l ()
   Taint                      :: l -> LIO l ()
-  TaintP                     :: PrivDesc p l => Priv p -> l -> LIO l ()
+  TaintP                     :: PrivDesc l p => Priv p -> l -> LIO l ()
   GuardWrite                 :: l -> LIO l ()
-  GuardWriteP                :: PrivDesc p l => Priv p -> l -> LIO l ()
+  GuardWriteP                :: PrivDesc l p => Priv p -> l -> LIO l ()
 
   -- * Monadic operations
   Return                     :: a -> LIO l a
@@ -97,15 +97,15 @@ data LIO l a where
 
   -- * Concurrency operators
   ForkLIO                    :: LIO l () -> LIO l ()
-  LForkP                     :: PrivDesc p l => Priv p -> l -> LIO l a -> LIO l (LabeledResult l a)
-  LWaitP                     :: PrivDesc p l => Priv p -> LabeledResult l a -> LIO l a
-  TryLWaitP                  :: PrivDesc p l => Priv p -> LabeledResult l a -> LIO l (Maybe a)
-  TimedLWaitP                :: PrivDesc p l => Priv p -> LabeledResult l a -> Int -> LIO l a
+  LForkP                     :: PrivDesc l p => Priv p -> l -> LIO l a -> LIO l (LabeledResult l a)
+  LWaitP                     :: PrivDesc l p => Priv p -> LabeledResult l a -> LIO l a
+  TryLWaitP                  :: PrivDesc l p => Priv p -> LabeledResult l a -> LIO l (Maybe a)
+  TimedLWaitP                :: PrivDesc l p => Priv p -> LabeledResult l a -> Int -> LIO l a
 
   -- * Label operations
   -- TODO: Stricter type?
-  WithMLabelP                :: PrivDesc p l => Priv p -> mlabel -> LIO l a -> LIO l a
-  ModifyMLabelP              :: PrivDesc p l => Priv p -> mlabel -> (l -> LIO l l) -> LIO l ()
+  WithMLabelP                :: PrivDesc l p => Priv p -> mlabel -> LIO l a -> LIO l a
+  ModifyMLabelP              :: PrivDesc l p => Priv p -> mlabel -> (l -> LIO l l) -> LIO l ()
   
   deriving (Typeable)
 
