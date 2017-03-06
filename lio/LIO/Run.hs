@@ -102,7 +102,15 @@ runLIO' ioRef lio =  case lio of
         GuardAllocP p newl
         TaintP p newl
     Return a -> return a
-    Bind _ _ -> undefined
+    Bind ma k -> do
+      a <- runLIO' ioRef ma
+      runLIO' ioRef $ k a
+
+    {-
+(LIOTCB ma) >>= k = LIOTCB $ \s -> do
+    a <- ma s
+    case k a of LIOTCB mb -> mb s
+    -}
     Fail s -> fail s
     GetLIOStateTCB -> readIORef ioRef
     PutLIOStateTCB s -> writeIORef ioRef s
