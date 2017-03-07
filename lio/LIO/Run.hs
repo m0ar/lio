@@ -19,6 +19,7 @@ import safe Data.IORef
 import safe Control.Monad
 
 import safe LIO.Label
+import safe LIO.TCB.MLabel (MLabel(..))
 import LIO.TCB
 import safe LIO.Error
 import safe Data.Typeable
@@ -195,7 +196,29 @@ runLIO' ioRef lio =  case lio of
                                         , relLocation = "timedWaitP"
                                         , relDeclaredLabel = rl
                                         , relActualLabel = Nothing }
-    WithMLabelP _ _ _ -> undefined
+    WithMLabelP p (MLabelTCB ll r mv _) f -> do
+      let run (LIOTCB io) = io s
+      run $ taintP p ll
+      tid <- myThreadId
+      u <- newUnique
+      let check lnew = do
+            LIOState { lioLabel = lcur, lioClearance = ccur } <- readIORef s
+            if canFlowToP p lcur lnew && canFlowToP p lnew lcur
+              then return True
+              else do IO.throwTo tid LabelError {
+                          lerrContext = []
+                        , lerrFailure = "withMLabelP label changed"
+                        , lerrCurLabel = lcur
+                        , lerrCurClearance = ccur
+                        , lerrPrivs = [GenericPrivDesc $ privDesc p]
+                        , lerrLabels = [lnew]
+                        }
+                      return False
+          enter = modifyMVar_ mv $ \m -> do
+            void $ readIORef r >>= check
+            return $ Map.insert u check m
+          exit = modifyMVar_ mv $ return . Map.delete u
+      IO.bracket_ enter exit $ run action 
     ModifyMLabelP _ _ _ -> undefined
 
 

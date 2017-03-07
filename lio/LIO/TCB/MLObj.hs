@@ -32,17 +32,15 @@ module LIO.TCB.MLObj (
   ) where
 
 import safe Control.Concurrent
-import safe qualified Control.Exception as IO
 import safe Control.Monad
-import safe Data.Map (Map)
 import safe qualified Data.Map as Map
 import safe Data.IORef
 import safe Data.Typeable
-import safe Data.Unique
 
 import safe LIO.Core
 import safe LIO.Error
 import safe LIO.Label
+import LIO.TCB.MLabel
 import LIO.TCB
 
 
@@ -78,20 +76,6 @@ instance MLabelPolicy ExternalML l where
     labelError "ExternalML" [lold, lnew]
 instance MLabelPolicyDefault ExternalML where
   mlabelPolicyDefault = ExternalML
-
--- | A mutable label.  Consists of a static label on the label, a
--- mutable label, and a list of threads currently accessing the label.
--- This is intended to be used by privileged code implementing @IO@
--- abstractions with mutable labels.  Routines for accessing such an
--- @IO@ abstraction should perform tne @IO@ from within a call to
--- 'withMLabelP', to ensure an exception is raised if another thread
--- revokes access with 'modifyMLabelP'.
-data MLabel policy l = MLabelTCB {
-    mlLabelLabel :: !l
-  , mlLabel :: !(IORef l)
-  , mlUsers :: !(MVar (Map Unique (l -> IO Bool)))
-  , mlPolicy :: policy
-  } deriving (Typeable)
 
 -- | Returns the immutable label that controls access to the mutable
 -- label value of an 'MLabel'.

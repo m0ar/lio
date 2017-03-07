@@ -44,6 +44,7 @@ import safe Data.IORef
 import safe Data.Typeable
 import safe LIO.Label
 import LIO.Priv (Priv(..))
+import LIO.TCB.MLabel (MLabel(..))
 
 --
 -- LIO Monad
@@ -104,8 +105,8 @@ data LIO l a where
 
   -- * Label operations
   -- TODO: Stricter type?
-  WithMLabelP                :: PrivDesc l p => Priv p -> mlabel -> LIO l a -> LIO l a
-  ModifyMLabelP              :: PrivDesc l p => Priv p -> mlabel -> (l -> LIO l l) -> LIO l ()
+  WithMLabelP                :: PrivDesc l p => Priv p -> MLabel policy l -> LIO l a -> LIO l a
+  ModifyMLabelP              :: PrivDesc l p => Priv p -> MLabel policy l -> (l -> LIO l l) -> LIO l ()
   
   deriving (Typeable)
 
