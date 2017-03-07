@@ -43,13 +43,6 @@ import safe LIO.Label
 import LIO.TCB.MLabel
 import LIO.TCB
 
-
-
--- | Class of policies for when it is permissible to update an
--- 'MLabel'.
-class MLabelPolicy policy l where
-  mlabelPolicy :: (PrivDesc l p) => policy -> p -> l -> l -> LIO l ()
-
 -- | Class for 'MLabelPolicy's that don't encode any interesting
 -- values.  This allows 'mlObjTCB' to create an 'MLObj' without
 -- requiring a policy argument.

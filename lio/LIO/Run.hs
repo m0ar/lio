@@ -16,10 +16,12 @@ import safe Control.Exception
 import safe qualified Control.Concurrent as IO
 import safe qualified Control.Exception as IO
 import safe Data.IORef
+import safe Data.Unique
 import safe Control.Monad
+import safe qualified Data.Map as Map
 
 import safe LIO.Label
-import safe LIO.TCB.MLabel (MLabel(..))
+import LIO.TCB.MLabel (MLabel(..))
 import LIO.TCB
 import safe LIO.Error
 import safe Data.Typeable
@@ -196,13 +198,12 @@ runLIO' ioRef lio =  case lio of
                                         , relLocation = "timedWaitP"
                                         , relDeclaredLabel = rl
                                         , relActualLabel = Nothing }
-    WithMLabelP p (MLabelTCB ll r mv _) f -> do
-      let run (LIOTCB io) = io s
-      run $ taintP p ll
-      tid <- myThreadId
+    WithMLabelP p (MLabelTCB ll r mv _) action -> do
+      runLIO' ioRef (TaintP p ll) 
+      tid <- IO.myThreadId
       u <- newUnique
       let check lnew = do
-            LIOState { lioLabel = lcur, lioClearance = ccur } <- readIORef s
+            LIOState { lioLabel = lcur, lioClearance = ccur } <- readIORef ioRef
             if canFlowToP p lcur lnew && canFlowToP p lnew lcur
               then return True
               else do IO.throwTo tid LabelError {
@@ -214,12 +215,20 @@ runLIO' ioRef lio =  case lio of
                         , lerrLabels = [lnew]
                         }
                       return False
-          enter = modifyMVar_ mv $ \m -> do
+          enter = IO.modifyMVar_ mv $ \m -> do
             void $ readIORef r >>= check
             return $ Map.insert u check m
-          exit = modifyMVar_ mv $ return . Map.delete u
-      IO.bracket_ enter exit $ run action 
-    ModifyMLabelP _ _ _ -> undefined
+          exit = IO.modifyMVar_ mv $ return . Map.delete u
+      IO.bracket_ enter exit $ runLIO' ioRef action 
+    ModifyMLabelP p (MLabelTCB ll r mv pl) fn -> runLIO' ioRef $ 
+      withContext "modifyMLabelP" $ do
+        GuardWriteP p ll
+        ioTCB $ IO.modifyMVar_ mv $ \m -> do
+          lold <- readIORef r
+          lnew <- runLIO' ioRef $ fn lold
+          () <- runLIO' ioRef $ mlabelPolicy pl p lold lnew
+          writeIORef r lnew
+          Map.fromList `fmap` filterM (($ lnew) . snd) (Map.assocs m) 
 
 
 -- | A variant of 'runLIO' that returns results in 'Right' and

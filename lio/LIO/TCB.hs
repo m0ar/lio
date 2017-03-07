@@ -1,6 +1,7 @@
 {-# LANGUAGE Unsafe #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE GADTs #-}
 
 {- | 
@@ -33,6 +34,8 @@ module LIO.TCB (
   , ShowTCB(..)
   -- * 'LabeledResult's
   , LabeledResult(..), LResStatus(..)
+  -- * MLabelPolicy
+  , MLabelPolicy(..)
   ) where
 
 import safe Control.Applicative ()
@@ -104,9 +107,8 @@ data LIO l a where
   TimedLWaitP                :: PrivDesc l p => Priv p -> LabeledResult l a -> Int -> LIO l a
 
   -- * Label operations
-  -- TODO: Stricter type?
   WithMLabelP                :: PrivDesc l p => Priv p -> MLabel policy l -> LIO l a -> LIO l a
-  ModifyMLabelP              :: PrivDesc l p => Priv p -> MLabel policy l -> (l -> LIO l l) -> LIO l ()
+  ModifyMLabelP              :: (PrivDesc l p, MLabelPolicy policy l) => Priv p -> MLabel policy l -> (l -> LIO l l) -> LIO l ()
   
   deriving (Typeable)
 
@@ -269,3 +271,8 @@ data LabeledResult l a = LabeledResultTCB {
 
 instance LabelOf LabeledResult where
   labelOf = lresLabelTCB
+
+-- | Class of policies for when it is permissible to update an
+-- 'MLabel'.
+class MLabelPolicy policy l where
+  mlabelPolicy :: (PrivDesc l p) => policy -> p -> l -> l -> LIO l ()
