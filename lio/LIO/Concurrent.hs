@@ -37,15 +37,8 @@ module LIO.Concurrent (
   , module LIO.Concurrent.LMVar
   ) where
 
-
-import safe qualified Control.Concurrent as IO
-import safe qualified Control.Exception as IO
-import safe Control.Monad
-import safe Data.IORef
-
 import safe LIO.Concurrent.LMVar
 import safe LIO.Core
-import safe LIO.Exception
 import safe LIO.Error
 import safe LIO.Label
 import LIO.TCB

@@ -1,5 +1,4 @@
 {-# LANGUAGE Trustworthy #-}
-{-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE ExistentialQuantification #-}
 
 {- |
@@ -21,13 +20,11 @@ module LIO.Exception (
   , onException, finally, bracket, evaluate
   ) where
 
-import safe Prelude ((.), ($), (==), undefined, flip)
-import safe Data.Maybe
+import safe Prelude ((.), ($), flip)
 import safe Data.Either
 import safe Control.Exception (Exception(..), SomeException(..))
 import safe qualified Control.Exception as IO
 import safe Control.Monad
-import safe Data.Typeable
 
 import LIO.TCB
 import safe LIO.Label

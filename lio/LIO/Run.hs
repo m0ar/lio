@@ -21,11 +21,11 @@ import safe Control.Monad
 import safe qualified Data.Map as Map
 
 import safe LIO.Label
-import LIO.TCB.MLabel (MLabel(..))
-import LIO.TCB
 import safe LIO.Error
 import safe Data.Typeable
 import safe LIO.Exception (throwLIO)
+import LIO.TCB.MLabel (MLabel(..))
+import LIO.TCB
 
 -- | Execute an 'LIO' action, returning its result and the final label
 -- state as a pair.  Note that it returns a pair whether or not the
@@ -84,11 +84,11 @@ runLIO' ioRef lio =  case lio of
                                   , lerrPrivs = []
                                   , lerrLabels = [] }
 
-    WithClearance c lio -> runLIO' ioRef $
-      ScopeClearance $ SetClearance c >> lio
+    WithClearance c lio' -> runLIO' ioRef $
+      ScopeClearance $ SetClearance c >> lio'
 
-    WithClearanceP p c lio -> runLIO' ioRef $
-      ScopeClearance $ SetClearanceP p c >> lio
+    WithClearanceP p c lio' -> runLIO' ioRef $
+      ScopeClearance $ SetClearanceP p c >> lio'
 
     -- * Guard operations
     GuardAlloc newl -> runLIO' ioRef $ do
@@ -154,15 +154,15 @@ runLIO' ioRef lio =  case lio of
           maybe (throwLIO e) h $ fromException e
 
     -- * Error contexts
-    WithContext ctx lio ->
-      runLIO' ioRef lio `IO.catch` \e ->
+    WithContext ctx lio' ->
+      runLIO' ioRef lio' `IO.catch` \e ->
       IO.throwIO $ annotate ctx (e :: AnyLabelError)
 
     -- * Concurrency operations
-    ForkLIO lio -> runLIO' ioRef $ do
+    ForkLIO lio' -> runLIO' ioRef $ do
       s <- getLIOStateTCB
       ioTCB $ void $ IO.forkIO $ do
-        ((), _) <- runLIO lio s
+        ((), _) <- runLIO lio' s
         return ()
 
     LForkP p l action -> runLIO' ioRef $ do
@@ -214,7 +214,7 @@ runLIO' ioRef lio =  case lio of
                                     TryLWaitP p lr >>= go)
       where go (Just a) = return a
             go Nothing = do
-              mvk <- ioTCB $ IO.newEmptyMVar
+              mvk <- ioTCB IO.newEmptyMVar
               tk <- ioTCB $ IO.forkIO $ IO.finally (IO.threadDelay to) $ do
                 IO.putMVar mvk ()
                 IO.throwTo t (UncatchableTCB IO.ThreadKilled)

@@ -10,7 +10,6 @@ import safe Data.Map (Map)
 import safe Data.Typeable
 import safe Data.Unique
 import safe Control.Concurrent.MVar
-import safe LIO.Label
 
 -- | A mutable label.  Consists of a static label on the label, a
 -- mutable label, and a list of threads currently accessing the label.

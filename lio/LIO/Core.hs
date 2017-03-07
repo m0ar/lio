@@ -1,6 +1,5 @@
 {-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
 
 {- | 
@@ -83,13 +82,7 @@ module LIO.Core (
   , guardWrite, guardWriteP
   ) where
 
-
-import safe qualified Control.Exception as IO
-import safe Control.Monad
-import safe Data.IORef
-
 import safe LIO.Error
-import safe LIO.Exception
 import safe LIO.Label
 import safe LIO.Monad(MonadLIO(..))
 import safe LIO.Run
