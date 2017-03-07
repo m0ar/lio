@@ -1,6 +1,5 @@
 {-# LANGUAGE Safe #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE FlexibleInstances #-}
 
 {- | 'MonadLIO' generalizations for "LIO.Core". -}
@@ -21,7 +20,6 @@ module LIO.Core.Trans (
 
 import safe LIO.Label
 import safe LIO.Monad
-
 import safe qualified LIO.Core as C
 
 -- | See 'LIO.Core.getLabel'.
