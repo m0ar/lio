@@ -1,0 +1,8 @@
+resolver: lts-6.6
+packages:
+- '.'
+- location: ../lio
+- location: ../quickcheck-lio-instances
+extra-deps: []
+flags: {}
+extra-package-dbs: []
