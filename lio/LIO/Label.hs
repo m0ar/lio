@@ -21,7 +21,7 @@ module LIO.Label (
 import safe Data.Monoid ()
 import safe Data.Typeable
 
-import LIO.PrivClass
+import LIO.Priv
 
 {- $Labels
 

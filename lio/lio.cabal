@@ -108,4 +108,4 @@ Library
     LIO.TCB.LObj
     LIO.TCB.MLObj
   Other-modules:
-    LIO.PrivClass
+    LIO.Priv

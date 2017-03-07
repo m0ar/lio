@@ -43,7 +43,7 @@ import safe Data.Monoid ()
 import safe Data.IORef
 import safe Data.Typeable
 import safe LIO.Label
-import LIO.PrivClass (Priv(..))
+import LIO.Priv (Priv(..))
 
 --
 -- LIO Monad

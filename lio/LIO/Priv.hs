@@ -1,7 +1,7 @@
 {-# LANGUAGE Unsafe #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 
-module LIO.PrivClass (
+module LIO.Priv (
   Priv(..)
   ) where
 import safe Data.Typeable
