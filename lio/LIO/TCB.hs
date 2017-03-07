@@ -64,22 +64,29 @@ data LIOState l = LIOState { lioLabel     :: !l -- ^ Current label.
 -- runtime functions can use 'ioTCB' to perform 'IO' actions (which
 -- they should only do after appropriately checking labels).
 data LIO l a where 
+  -- * Label operations
   GetLabel                   :: LIO l l
   SetLabel                   :: l -> LIO l ()
   SetLabelP                  :: PrivDesc l p => Priv p -> l -> LIO l ()
+  
+  -- * Clearance operations
   GetClearance               :: LIO l l
   SetClearance               :: l -> LIO l ()
   SetClearanceP              :: PrivDesc l p => Priv p -> l -> LIO l ()
   ScopeClearance             :: LIO l a -> LIO l a
   WithClearance              :: l -> LIO l a -> LIO l a
   WithClearanceP             :: PrivDesc l p => Priv p -> l -> LIO l a -> LIO l a
+  
+  -- * Guard operations
   GuardAlloc                 :: l -> LIO l ()
   GuardAllocP                :: PrivDesc l p => Priv p -> l -> LIO l ()
-  Taint                      :: l -> LIO l ()
-  TaintP                     :: PrivDesc l p => Priv p -> l -> LIO l ()
   GuardWrite                 :: l -> LIO l ()
   GuardWriteP                :: PrivDesc l p => Priv p -> l -> LIO l ()
-
+  
+  -- * Taint operations
+  Taint                      :: l -> LIO l ()
+  TaintP                     :: PrivDesc l p => Priv p -> l -> LIO l ()
+  
   -- * Monadic operations
   Return                     :: a -> LIO l a
   Bind                       :: LIO l a -> (a -> LIO l b) -> LIO l b

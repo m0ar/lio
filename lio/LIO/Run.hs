@@ -39,29 +39,37 @@ runLIO lio s0 = do
   a  <- runLIO' sp lio `IO.catch` \e -> return $ throw $ makeCatchable e
   s1 <- readIORef sp
   return (a, s1)
-  
+
+
 runLIO' :: Label l => IORef (LIOState l) -> LIO l a -> IO a  
 runLIO' ioRef lio =  case lio of
+    -- * Label operations
     GetLabel      -> runLIO' ioRef $ lioLabel `liftM` getLIOStateTCB
     SetLabel l    -> runLIO' ioRef $
       WithContext "setLabel" $ do
         GuardAlloc l
         ModifyLIOStateTCB $ \s -> s { lioLabel = l }
+
     SetLabelP p l  -> runLIO' ioRef $
       WithContext "setLabelP" $ do
         GuardAllocP p l
         ModifyLIOStateTCB $ \s -> s { lioLabel = l }
+
+    -- * Clearance operations
     GetClearance   -> runLIO' ioRef $ lioClearance `liftM` getLIOStateTCB
+
     SetClearance cnew -> runLIO' ioRef $ do
       LIOState { lioLabel = l, lioClearance = c } <- getLIOStateTCB
       unless (canFlowTo l cnew && canFlowTo cnew c) $
         labelError "setClearance" [cnew]
       PutLIOStateTCB $ LIOState l cnew
+
     SetClearanceP p cnew -> runLIO' ioRef $ do
       LIOState l c <- getLIOStateTCB
       unless (canFlowTo l cnew && canFlowToP p cnew c) $
         labelErrorP "setClearanceP" p [cnew]
       putLIOStateTCB $ LIOState l cnew
+
     ScopeClearance action -> do
       LIOState _ c <- readIORef ioRef
       ea <- IO.try $ runLIO' ioRef action
@@ -75,47 +83,65 @@ runLIO' ioRef lio =  case lio of
                                   , lerrCurClearance = c
                                   , lerrPrivs = []
                                   , lerrLabels = [] }
+
     WithClearance c lio -> runLIO' ioRef $
       ScopeClearance $ SetClearance c >> lio
+
     WithClearanceP p c lio -> runLIO' ioRef $
       ScopeClearance $ SetClearanceP p c >> lio
+
+    -- * Guard operations
     GuardAlloc newl -> runLIO' ioRef $ do
       LIOState { lioLabel = l, lioClearance = c } <- getLIOStateTCB
       unless (canFlowTo l newl && canFlowTo newl c) $
         labelError "guardAllocP" [newl]
+
     GuardAllocP p newl -> runLIO' ioRef $ do
       LIOState { lioLabel = l, lioClearance = c } <- getLIOStateTCB
       unless (canFlowToP p l newl && canFlowTo newl c) $
         labelErrorP "guardAllocP" p [newl]
+
+    GuardWrite newl -> runLIO' ioRef $
+      WithContext "guardWrite" $ do
+        GuardAlloc newl
+        Taint newl
+
+    GuardWriteP p newl-> runLIO' ioRef $
+      withContext "guardWriteP" $ do
+        GuardAllocP p newl
+        TaintP p newl
+
+    -- * Taint operations
     Taint newl -> runLIO' ioRef $ do
       LIOState { lioLabel = l, lioClearance = c } <- getLIOStateTCB
       let l' = l `lub` newl
       unless (l' `canFlowTo` c) $ labelError "taint" [newl]
       ModifyLIOStateTCB $ \s -> s { lioLabel = l' }
+
     TaintP p newl -> runLIO' ioRef $ do
       LIOState { lioLabel = l, lioClearance = c } <- getLIOStateTCB
       let l' = l `lub` downgradeP p newl
       unless (l' `canFlowTo` c) $ labelErrorP "taintP" p [newl]
       modifyLIOStateTCB $ \s -> s { lioLabel = l' }
-    GuardWrite newl -> runLIO' ioRef $
-      WithContext "guardWrite" $ do
-        GuardAlloc newl
-        Taint newl
-    GuardWriteP p newl-> runLIO' ioRef $
-      withContext "guardWriteP" $ do
-        GuardAllocP p newl
-        TaintP p newl
+
+    -- * Monadic operations
     Return a -> return a
     Bind ma k -> do
       a <- runLIO' ioRef ma
       runLIO' ioRef $ k a
     Fail s -> fail s
+
+    -- * State modifiers
     GetLIOStateTCB -> readIORef ioRef
     PutLIOStateTCB s -> writeIORef ioRef s
     ModifyLIOStateTCB f -> do
       s <- readIORef ioRef
       writeIORef ioRef (f s)
+
+    -- * IO Lifting
     IOTCB a -> a
+
+    -- * Exception handling
     Catch lio' h -> do
       let io = runLIO' ioRef lio'
       io `IO.catch` \e -> runLIO' ioRef (safeh e)
@@ -126,14 +152,19 @@ runLIO' ioRef lio =  case lio of
           LIOState l c <- getLIOStateTCB
           unless (l `canFlowTo` c) $ throwLIO e
           maybe (throwLIO e) h $ fromException e
+
+    -- * Error contexts
     WithContext ctx lio ->
       runLIO' ioRef lio `IO.catch` \e ->
       IO.throwIO $ annotate ctx (e :: AnyLabelError)
+
+    -- * Concurrency operations
     ForkLIO lio -> runLIO' ioRef $ do
       s <- getLIOStateTCB
       ioTCB $ void $ IO.forkIO $ do
         ((), _) <- runLIO lio s
         return ()
+
     LForkP p l action -> runLIO' ioRef $ do
       withContext "lForkP" $ GuardAllocP p l
       mv <- ioTCB IO.newEmptyMVar
@@ -149,6 +180,7 @@ runLIO' ioRef lio =  case lio of
           Right a                      -> LResResult a
         IO.putMVar mv ()
       return $ LabeledResultTCB tid l mv st
+
     LWaitP p (LabeledResultTCB _ l mv st) -> runLIO' ioRef $
       withContext "lWaitP" (TaintP p l) >> go
       where go = ioTCB (readIORef st) >>= check
@@ -162,6 +194,7 @@ runLIO' ioRef lio =  case lio of
                 , relLocation = "lWaitP"
                 , relDeclaredLabel = l
                 , relActualLabel = Just lnew }
+
     TryLWaitP p (LabeledResultTCB _ rl _ st) -> runLIO' ioRef $
       withContext "trylWaitP" (TaintP p rl) >> ioTCB (readIORef st) >>= check
       where check LResEmpty = return Nothing
@@ -175,6 +208,7 @@ runLIO' ioRef lio =  case lio of
                       , relDeclaredLabel = rl
                       , relActualLabel = Just lnew }
                 else return Nothing
+
     TimedLWaitP p lr@(LabeledResultTCB t rl mvb _) to -> runLIO' ioRef $
       withContext "timedlWaitP" (do GuardWriteP p rl
                                     TryLWaitP p lr >>= go)
@@ -192,6 +226,8 @@ runLIO' ioRef lio =  case lio of
                                         , relLocation = "timedWaitP"
                                         , relDeclaredLabel = rl
                                         , relActualLabel = Nothing }
+
+    -- * Label operations
     WithMLabelP p (MLabelTCB ll r mv _) action -> do
       runLIO' ioRef (TaintP p ll) 
       tid <- IO.myThreadId
@@ -214,6 +250,7 @@ runLIO' ioRef lio =  case lio of
             return $ Map.insert u check m
           exit = IO.modifyMVar_ mv $ return . Map.delete u
       IO.bracket_ enter exit $ runLIO' ioRef action 
+
     ModifyMLabelP p (MLabelTCB ll r mv pl) fn -> runLIO' ioRef $ 
       withContext "modifyMLabelP" $ do
         GuardWriteP p ll
