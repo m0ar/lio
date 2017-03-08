@@ -72,12 +72,12 @@ runLIO' ioRef lio = case lio of
 
     ScopeClearance action -> do
       LIOState _ c <- liftIO $ readIORef ioRef
-      ea <- IO.try $ runLIO' ioRef action
+      ea <- liftIO $ IO.try $ runContT (runLIO' ioRef action) return
       LIOState l _ <- liftIO $ readIORef ioRef
       liftIO $ writeIORef ioRef (LIOState l c)
       if l `canFlowTo` c
-        then either (IO.throwIO :: SomeException -> IO a) return ea
-        else IO.throwIO LabelError { lerrContext = []
+        then either (liftIO . (IO.throwIO :: SomeException -> IO a)) return ea
+        else liftIO $ IO.throwIO LabelError { lerrContext = []
                                   , lerrFailure = "scopeClearance"
                                   , lerrCurLabel = l
                                   , lerrCurClearance = c
@@ -125,21 +125,19 @@ runLIO' ioRef lio = case lio of
       modifyLIOStateTCB $ \s -> s { lioLabel = l' }
 
     -- * Monadic operations
-    Return a -> return a
-    Bind ma k -> do
-      a <- runLIO' ioRef ma
-      runLIO' ioRef $ k a
-    Fail s -> fail s
+    Return a  -> return a
+    Bind ma k -> undefined -- runLIO' ioRef ma >>= \a -> runLIO' ioRef $ k a
+    Fail s    -> fail s
 
     -- * State modifiers
-    GetLIOStateTCB -> readIORef ioRef
-    PutLIOStateTCB s -> writeIORef ioRef s
+    GetLIOStateTCB -> liftIO $ readIORef ioRef
+    PutLIOStateTCB s -> liftIO $ writeIORef ioRef s
     ModifyLIOStateTCB f -> do
-      s <- readIORef ioRef
-      writeIORef ioRef (f s)
+      s <- liftIO $ readIORef ioRef
+      liftIO $ writeIORef ioRef (f s)
 
     -- * IO Lifting
-    IOTCB a -> a
+    IOTCB a -> liftIO a
 
     -- * Exception handling
     Catch lio' h -> do
@@ -301,15 +299,18 @@ privInit :: (SpeaksFor p) => p -> IO (Priv p)
 privInit p | isPriv p  = fail "privInit called on Priv object"
            | otherwise = return $ PrivTCB p
 
+-- | Run a computation, leveraging the underlying IO to catch label exceptions.
+-- Lifts the exceptions to a continuation.
 liftE :: Cont r a -> Cont r (Either a e)
 liftE cont = \k -> IO.catch 
   (Left <$> runCont cont k) 
   (return . Right)
 
+-- | Runs a LIO computation and handles possible errors th
 catchLIO :: Cont r a -> (e -> Cont r a) -> Cont r a
 catchLIO run hd = do 
   either <- liftE run
   case either of
-    Left a -> return a
+    Left a  -> return a
     Right e -> hd e
 
