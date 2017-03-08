@@ -72,7 +72,7 @@ runLIO' ioRef lio = case lio of
 
     ScopeClearance action -> do
       LIOState _ c <- liftIO $ readIORef ioRef
-      ea <- liftIO $ IO.try $ runLIO' ioRef action
+      ea <- IO.try $ runLIO' ioRef action
       LIOState l _ <- liftIO $ readIORef ioRef
       liftIO $ writeIORef ioRef (LIOState l c)
       if l `canFlowTo` c
@@ -300,3 +300,16 @@ evalLIO lio s = do
 privInit :: (SpeaksFor p) => p -> IO (Priv p)
 privInit p | isPriv p  = fail "privInit called on Priv object"
            | otherwise = return $ PrivTCB p
+
+liftE :: Cont r a -> Cont r (Either a e)
+liftE cont = \k -> IO.catch 
+  (Left <$> runCont cont k) 
+  (return . Right)
+
+catchLIO :: Cont r a -> (e -> Cont r a) -> Cont r a
+catchLIO run hd = do 
+  either <- liftE run
+  case either of
+    Left a -> return a
+    Right e -> hd e
+
