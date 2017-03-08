@@ -126,7 +126,9 @@ runLIO' ioRef lio = case lio of
 
     -- * Monadic operations
     Return a  -> return a
-    Bind ma k -> undefined -- runLIO' ioRef ma >>= \a -> runLIO' ioRef $ k a
+    Bind ma k -> do
+      a <- lift (runContT (runLIO' ioRef ma) return)
+      runLIO' ioRef (k a)
     Fail s    -> fail s
 
     -- * State modifiers
