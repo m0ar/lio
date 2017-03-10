@@ -10,7 +10,7 @@
 -- use in invoking 'LIO' code.  The functions are also available via
 -- "LIO" and "LIO.Core", but those modules will clutter your namespace
 -- with symbols you don't need in the 'IO' monad.
-module LIO.RunCPS (LIOState(..), runLIO, tryLIO, evalLIO) where
+module LIO.RunCPS (LIOState(..), runLIOCPS, tryLIOCPS, evalLIOCPS) where
 
 import safe Control.Exception
 import safe qualified Control.Concurrent as IO
@@ -160,7 +160,7 @@ runLIO' ioRef lio = case lio of
     ForkLIO lio' -> runLIO' ioRef $ do
       s <- getLIOStateTCB
       ioTCB $ void $ IO.forkIO $ do
-        ((), _) <- runLIO lio' s
+        ((), _) <- runLIOCPS lio' s
         return ()
 
     LForkP p l action -> runLIO' ioRef $ do
@@ -264,7 +264,7 @@ runLIO' ioRef lio = case lio of
 -- exceptions in 'Left', much like the standard library 'try'
 -- function.
 tryLIOCPS :: Label l => LIO l a -> LIOState l -> IO (Either SomeException a, LIOState l)
-tryLIOCPS lio s0 = runLIO lio s0 >>= tryit
+tryLIOCPS lio s0 = runLIOCPS lio s0 >>= tryit
   where tryit (a, s) = do
           ea <- try (evaluate a)
           return (ea, s)
@@ -282,9 +282,9 @@ tryLIOCPS lio s0 = runLIO lio s0 >>= tryit
 --
 -- Unlike 'runLIO', this function throws an exception if the
 -- underlying 'LIO' action terminates with an exception.
-evalLIO :: Label l => LIO l a -> LIOState l -> IO a
-evalLIO lio s = do
-  (a, _) <- runLIO lio s
+evalLIOCPS :: Label l => LIO l a -> LIOState l -> IO a
+evalLIOCPS lio s = do
+  (a, _) <- runLIOCPS lio s
   return $! a
 
 
