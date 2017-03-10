@@ -143,8 +143,9 @@ runLIO' ioRef lio = case lio of
 
     -- * Exception handling
     Catch lio' h -> do
-      let io = runLIO' ioRef lio'
-      io `IO.catch` \e -> runLIO' ioRef (safeh e)
+      let io = runContT (runLIO' ioRef lio') return
+      liftIO $ IO.catch io $ \e -> 
+        runContT (runLIO' ioRef $ safeh e) return
       where
         uncatchableType = typeOf (undefined :: UncatchableTCB)
         safeh e@(SomeException einner) = do
@@ -230,8 +231,8 @@ runLIO' ioRef lio = case lio of
     -- * Label operations
     WithMLabelP p (MLabelTCB ll r mv _) action -> do
       runLIO' ioRef (TaintP p ll) 
-      tid <- IO.myThreadId
-      u <- newUnique
+      tid <- liftIO IO.myThreadId
+      u <- liftIO newUnique
       let check lnew = do
             LIOState { lioLabel = lcur, lioClearance = ccur } <- readIORef ioRef
             if canFlowToP p lcur lnew && canFlowToP p lnew lcur
@@ -249,15 +250,15 @@ runLIO' ioRef lio = case lio of
             void $ readIORef r >>= check
             return $ Map.insert u check m
           exit = IO.modifyMVar_ mv $ return . Map.delete u
-      IO.bracket_ enter exit $ runLIO' ioRef action 
+      liftIO $ IO.bracket_ enter exit $ runContT (runLIO' ioRef action) return 
 
     ModifyMLabelP p (MLabelTCB ll r mv pl) fn -> runLIO' ioRef $ 
       withContext "modifyMLabelP" $ do
         GuardWriteP p ll
         ioTCB $ IO.modifyMVar_ mv $ \m -> do
           lold <- readIORef r
-          lnew <- runLIO' ioRef $ fn lold
-          () <- runLIO' ioRef $ mlabelPolicy pl p lold lnew
+          lnew <- runContT (runLIO' ioRef $ fn lold) return
+          () <- runContT (runLIO' ioRef $ mlabelPolicy pl p lold lnew) return
           writeIORef r lnew
           Map.fromList `fmap` filterM (($ lnew) . snd) (Map.assocs m) 
 
@@ -303,13 +304,14 @@ privInit p | isPriv p  = fail "privInit called on Priv object"
 
 -- | Run a computation, leveraging the underlying IO to catch label exceptions.
 -- Lifts the exceptions to a continuation.
-liftE :: Cont r a -> Cont r (Either a e)
-liftE cont = \k -> IO.catch 
-  (Left <$> runCont cont k) 
-  (return . Right)
+liftE :: ContT r IO a -> ContT r IO (Either a e)
+liftE cont = undefined -- callCC $ \k -> do 
+  -- liftIO $ IO.catch 
+  --  (runContT cont k >>= return . Left) 
+  --  (return . Right)
 
 -- | Runs a LIO computation and handles possible errors th
-catchLIO :: Cont r a -> (e -> Cont r a) -> Cont r a
+catchLIO :: ContT r IO a -> (e -> ContT r IO a) -> ContT r IO a
 catchLIO run hd = do 
   either <- liftE run
   case either of
