@@ -155,8 +155,8 @@ runLIO' ioRef lio = case lio of
 
     -- * Error contexts
     WithContext ctx lio' ->
-      runLIO' ioRef lio' `IO.catch` \e ->
-      IO.throwIO $ annotate ctx (e :: AnyLabelError)
+      liftIO (runContT (runLIO' ioRef lio') return `IO.catch` \e ->
+      IO.throwIO $ annotate ctx (e :: AnyLabelError))
 
     -- * Concurrency operations
     ForkLIO lio' -> runLIO' ioRef $ do
@@ -172,7 +172,7 @@ runLIO' ioRef lio = case lio of
       s0 <- getLIOStateTCB
       tid <- ioTCB $ IO.mask $ \unmask -> IO.forkIO $ do
         sp <- newIORef s0
-        ea <- IO.try $ unmask $ runLIO' sp action
+        ea <- IO.try $ unmask $ runContT (runLIO' sp action) return
         LIOState lEnd _ <- readIORef sp
         writeIORef st $ case ea of
           _ | not (lEnd `canFlowTo` l) -> LResLabelTooHigh lEnd
