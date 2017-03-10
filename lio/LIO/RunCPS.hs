@@ -41,7 +41,7 @@ runLIO lio s0 = do
   s1 <- readIORef sp
   return (a, s1)
 
-runLIO' :: Label l => IORef (LIOState l) -> LIO l a -> ContT a IO a
+runLIO' :: Label l => IORef (LIOState l) -> LIO l a -> ContT r IO a
 runLIO' ioRef lio = case lio of
     -- * Label operations
     GetLabel      -> runLIO' ioRef $ lioLabel `liftM` getLIOStateTCB
@@ -72,7 +72,7 @@ runLIO' ioRef lio = case lio of
 
     ScopeClearance action -> do
       LIOState _ c <- liftIO $ readIORef ioRef
-      ea <- liftIO $ IO.try $ runContT (runLIO' ioRef action) return
+      ea <- liftE $ runLIO' ioRef action
       LIOState l _ <- liftIO $ readIORef ioRef
       liftIO $ writeIORef ioRef (LIOState l c)
       if l `canFlowTo` c
@@ -126,9 +126,7 @@ runLIO' ioRef lio = case lio of
 
     -- * Monadic operations
     Return a  -> return a
-    Bind ma k -> do
-      a <- lift (runContT (runLIO' ioRef ma) return)
-      runLIO' ioRef (k a)
+    Bind ma k -> runLIO' ioRef ma >>= runLIO' ioRef . k 
     Fail s    -> fail s
 
     -- * State modifiers
@@ -143,9 +141,8 @@ runLIO' ioRef lio = case lio of
 
     -- * Exception handling
     Catch lio' h -> do
-      let io = runContT (runLIO' ioRef lio') return
-      liftIO $ IO.catch io $ \e -> 
-        runContT (runLIO' ioRef $ safeh e) return
+      let io = runLIO' ioRef lio'
+      catchLIO io $ \e -> runLIO' ioRef $ safeh e
       where
         uncatchableType = typeOf (undefined :: UncatchableTCB)
         safeh e@(SomeException einner) = do
@@ -230,27 +227,27 @@ runLIO' ioRef lio = case lio of
 
     -- * Label operations
     WithMLabelP p (MLabelTCB ll r mv _) action -> do
-      runLIO' ioRef (TaintP p ll) 
-      tid <- liftIO IO.myThreadId
-      u <- liftIO newUnique
-      let check lnew = do
-            LIOState { lioLabel = lcur, lioClearance = ccur } <- readIORef ioRef
-            if canFlowToP p lcur lnew && canFlowToP p lnew lcur
-              then return True
-              else do IO.throwTo tid LabelError {
-                          lerrContext = []
-                        , lerrFailure = "withMLabelP label changed"
-                        , lerrCurLabel = lcur
-                        , lerrCurClearance = ccur
-                        , lerrPrivs = [GenericPrivDesc $ privDesc p]
-                        , lerrLabels = [lnew]
-                        }
-                      return False
-          enter = IO.modifyMVar_ mv $ \m -> do
-            void $ readIORef r >>= check
-            return $ Map.insert u check m
-          exit = IO.modifyMVar_ mv $ return . Map.delete u
-      liftIO $ IO.bracket_ enter exit $ runContT (runLIO' ioRef action) return 
+        runLIO' ioRef (TaintP p ll) 
+        tid <- liftIO IO.myThreadId
+        u <- liftIO  newUnique
+        let check lnew = do
+              LIOState { lioLabel = lcur, lioClearance = ccur } <- readIORef ioRef
+              if canFlowToP p lcur lnew && canFlowToP p lnew lcur
+                then return True
+                else do IO.throwTo tid LabelError {
+                            lerrContext = []
+                          , lerrFailure = "withMLabelP label changed"
+                          , lerrCurLabel = lcur
+                          , lerrCurClearance = ccur
+                          , lerrPrivs = [GenericPrivDesc $ privDesc p]
+                          , lerrLabels = [lnew]
+                          }
+                        return False
+            enter = IO.modifyMVar_ mv $ \m -> do
+              void $ readIORef r >>= check
+              return $ Map.insert u check m
+            exit = IO.modifyMVar_ mv $ return . Map.delete u
+        liftIO $ IO.bracket_ enter exit $ runLIO' ioRef action
 
     ModifyMLabelP p (MLabelTCB ll r mv pl) fn -> runLIO' ioRef $ 
       withContext "modifyMLabelP" $ do
@@ -304,7 +301,7 @@ privInit p | isPriv p  = fail "privInit called on Priv object"
 
 -- | Run a computation, leveraging the underlying IO to catch label exceptions.
 -- Lifts the exceptions to a continuation.
-liftE :: ContT r IO a -> ContT r IO (Either a e)
+liftE :: ContT r IO a -> ContT r IO (Either e a)
 liftE cont = undefined -- callCC $ \k -> do 
   -- liftIO $ IO.catch 
   --  (runContT cont k >>= return . Left) 
@@ -315,6 +312,6 @@ catchLIO :: ContT r IO a -> (e -> ContT r IO a) -> ContT r IO a
 catchLIO run hd = do 
   either <- liftE run
   case either of
-    Left a  -> return a
-    Right e -> hd e
+    Left e  -> hd e
+    Right a -> return a 
 
