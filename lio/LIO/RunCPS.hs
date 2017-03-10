@@ -10,7 +10,7 @@
 -- use in invoking 'LIO' code.  The functions are also available via
 -- "LIO" and "LIO.Core", but those modules will clutter your namespace
 -- with symbols you don't need in the 'IO' monad.
-module LIO.RunCPS (LIOState(..), runLIO, tryLIO, evalLIO, privInit) where
+module LIO.RunCPS (LIOState(..), runLIO, tryLIO, evalLIO) where
 
 import safe Control.Exception
 import safe qualified Control.Concurrent as IO
@@ -34,10 +34,10 @@ import LIO.TCB
 -- re-throw the exception, but the label state will always be valid.
 --
 -- See also 'evalLIO'.
-runLIO :: Label l => LIO l a -> LIOState l -> IO (a, LIOState l)
-runLIO lio s0 = do
+runLIOCPS :: Label l => LIO l a -> LIOState l -> IO (a, LIOState l)
+runLIOCPS lio s0 = do
   sp <- newIORef s0
-  a <- runContT (runLIO' sp lio) return
+  a <-  runContT (runLIO' sp lio) return `IO.catch` \e -> return $ throw $ makeCatchable e
   s1 <- readIORef sp
   return (a, s1)
 
@@ -126,7 +126,7 @@ runLIO' ioRef lio = case lio of
 
     -- * Monadic operations
     Return a  -> return a
-    Bind ma k -> runLIO' ioRef ma >>= runLIO' ioRef . k 
+    Bind ma k -> runLIO' ioRef . k =<< runLIO' ioRef ma 
     Fail s    -> fail s
 
     -- * State modifiers
@@ -247,7 +247,7 @@ runLIO' ioRef lio = case lio of
               void $ readIORef r >>= check
               return $ Map.insert u check m
             exit = IO.modifyMVar_ mv $ return . Map.delete u
-        liftIO $ IO.bracket_ enter exit $ runLIO' ioRef action
+        liftIO $ IO.bracket_ enter exit $ runContT (runLIO' ioRef action) return 
 
     ModifyMLabelP p (MLabelTCB ll r mv pl) fn -> runLIO' ioRef $ 
       withContext "modifyMLabelP" $ do
@@ -263,8 +263,8 @@ runLIO' ioRef lio = case lio of
 -- | A variant of 'runLIO' that returns results in 'Right' and
 -- exceptions in 'Left', much like the standard library 'try'
 -- function.
-tryLIO :: Label l => LIO l a -> LIOState l -> IO (Either SomeException a, LIOState l)
-tryLIO lio s0 = runLIO lio s0 >>= tryit
+tryLIOCPS :: Label l => LIO l a -> LIOState l -> IO (Either SomeException a, LIOState l)
+tryLIOCPS lio s0 = runLIO lio s0 >>= tryit
   where tryit (a, s) = do
           ea <- try (evaluate a)
           return (ea, s)
@@ -287,31 +287,15 @@ evalLIO lio s = do
   (a, _) <- runLIO lio s
   return $! a
 
--- | Initialize some privileges (within the 'IO' monad) that can be
--- passed to 'LIO' computations run with 'runLIO' or 'evalLIO'.  This
--- is a pure function, but the result is encapsulated in 'IO' to
--- make the return value inaccessible from 'LIO' computations.
---
--- Note the same effect can be achieved using the 'PrivTCB'
--- constructor, but 'PrivTCB' is easier to misuse and is only available by
--- importing "LIO.TCB".
-privInit :: (SpeaksFor p) => p -> IO (Priv p)
-privInit p | isPriv p  = fail "privInit called on Priv object"
-           | otherwise = return $ PrivTCB p
 
 -- | Run a computation, leveraging the underlying IO to catch label exceptions.
 -- Lifts the exceptions to a continuation.
-liftE :: ContT r IO a -> ContT r IO (Either e a)
-liftE cont = undefined -- callCC $ \k -> do 
-  -- liftIO $ IO.catch 
-  --  (runContT cont k >>= return . Left) 
-  --  (return . Right)
+liftE :: Exception e => ContT (Either e a) IO a -> ContT r IO (Either e a)
+liftE k = liftIO $ IO.catch (runContT k $ return . Right) 
+                               (return . Left)
 
 -- | Runs a LIO computation and handles possible errors th
-catchLIO :: ContT r IO a -> (e -> ContT r IO a) -> ContT r IO a
-catchLIO run hd = do 
-  either <- liftE run
-  case either of
-    Left e  -> hd e
-    Right a -> return a 
+catchLIO :: Exception e => ContT (Either e a) IO a -> 
+            (e -> ContT r IO a) -> ContT r IO a
+catchLIO run hd = either hd return =<< liftE run 
 
