@@ -4,10 +4,11 @@
 -- | This module contains functions to launch 'LIO' computations from
 -- within the 'IO' monad.  These functions are not useful from within
 -- 'LIO' code (but not harmful either, since their types are in the
--- 'IO' monad).
+-- 'IO' monad). In contrast to the LIO.Run module this utilises CPS
+-- though the continuation monad.
 --
 -- This module is intended to be imported into your Main module, for
--- use in invoking 'LIO' code.  The functions are also available via
+-- use in invoking 'LIO' code. The functions are also available via
 -- "LIO" and "LIO.Core", but those modules will clutter your namespace
 -- with symbols you don't need in the 'IO' monad.
 module LIO.RunCPS (LIOState(..), runLIOCPS, tryLIOCPS, evalLIOCPS) where
@@ -33,7 +34,10 @@ import LIO.TCB
 -- 'LIO' action throws an exception.  Forcing the result value will
 -- re-throw the exception, but the label state will always be valid.
 --
--- See also 'evalLIO'.
+-- This module uses CPS through the continuation monad when performing
+-- LIO computations.
+--
+-- See also 'evalLIOCPS'.
 runLIOCPS :: Label l => LIO l a -> LIOState l -> IO (a, LIOState l)
 runLIOCPS lio s0 = do
   sp <- newIORef s0
@@ -41,6 +45,10 @@ runLIOCPS lio s0 = do
   s1 <- readIORef sp
   return (a, s1)
 
+-- | Recursive runner in the continuation monad for computing in LIO.
+-- The notable difference is that the bind nests continuations together,
+-- making it possible to apply operations to the future of a LIO computation
+-- by applying it to the continuation of the computation.
 runLIO' :: Label l => IORef (LIOState l) -> LIO l a -> ContT r IO a
 runLIO' ioRef lio = case lio of
     -- * Label operations
@@ -292,9 +300,10 @@ evalLIOCPS lio s = do
 -- Lifts the exceptions to a continuation.
 liftE :: Exception e => ContT (Either e a) IO a -> ContT r IO (Either e a)
 liftE k = liftIO $ IO.catch (runContT k $ return . Right) 
-                               (return . Left)
+                            (return . Left)
 
--- | Runs a LIO computation and handles possible errors th
+-- | Runs a LIO computation and chooses the next continuation depending
+-- on whether the computation results in an error or not.
 catchLIO :: Exception e => ContT (Either e a) IO a -> 
             (e -> ContT r IO a) -> ContT r IO a
 catchLIO run hd = either hd return =<< liftE run 

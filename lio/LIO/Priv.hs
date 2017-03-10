@@ -1,14 +1,11 @@
 {-# LANGUAGE Unsafe #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 
+-- | This module defines the Privilige type.
 module LIO.Priv (
   Priv(..)
   ) where
 import safe Data.Typeable
-
---
--- Privileges
---
 
 -- | A newtype wrapper that can be used by trusted code to transform a
 -- powerless description of privileges into actual privileges.  The
