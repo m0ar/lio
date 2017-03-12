@@ -63,7 +63,7 @@ module LIO.Core (
     LIO
   , MonadLIO(..)
   -- ** Execute LIO actions
-  , LIOState(..), evalLIO, runLIO
+  , LIOState(..), evalLIO, runLIO, evalLIOCPS, runLIOCPS
   -- ** Manipulating label state
   , getLabel, setLabel, setLabelP
   -- ** Manipulating clearance
@@ -86,6 +86,7 @@ import safe LIO.Error
 import safe LIO.Label
 import safe LIO.Monad(MonadLIO(..))
 import safe LIO.Run
+import safe LIO.RunCPS
 import LIO.TCB
 
 
